@@ -1,4 +1,4 @@
-From Coq Require Import ZArith Bool.
+From Coq Require Import ZArith Bool Lia.
 From Coq Require Import Morphisms.
 Require Import Monads.
 Require Import Extras.
@@ -275,6 +275,8 @@ Qed.
 
 Ltac receive_simpl_step :=
   match goal with
+  | H : Blockchain.receive _ _ _ _ _ = Some (_, _) |- _ =>
+      unfold Blockchain.receive in H; cbn in H
   | H : receive _ _ _ _ = Some (_, _) |- _ =>
       apply contract_not_payable in H as ctx_amount_zero;
       apply Z.ltb_ge in ctx_amount_zero;
@@ -866,11 +868,276 @@ Qed.
 
 
 
+(* ------------------- Init correct ------------------- *)
+
+(* After initalization no accounts should hold tokens *)
+Lemma init_balances_correct : forall chain ctx setup state,
+  init chain ctx setup = Some state ->
+    state.(tokens) = FMap.empty.
+Proof.
+  intros * init_some.
+  now inversion init_some.
+Qed.
+
+(* After initalization no allowances should be set *)
+Lemma init_allowances_correct : forall chain ctx setup state,
+  init chain ctx setup = Some state ->
+    state.(allowances) = FMap.empty.
+Proof.
+  intros * init_some.
+  now inversion init_some.
+Qed.
+
+Lemma init_admin_correct : forall chain ctx setup state,
+  init chain ctx setup = Some state ->
+    state.(admin) = setup.(admin_).
+Proof.
+  intros * init_some.
+  now inversion init_some.
+Qed.
+
+Lemma init_total_supply_correct : forall chain ctx setup state,
+  init chain ctx setup = Some state ->
+    state.(total_supply) = 0.
+Proof.
+  intros * init_some.
+  now inversion init_some.
+Qed.
+
+(* initialization should always succeed *)
+Lemma init_is_some : forall chain ctx setup,
+  exists state, init chain ctx setup = state.
+Proof.
+  intros.
+  eauto.
+Qed.
+
+
+
+(* ------------------- Outgoing acts facts ------------------- *)
+
+(* contract never calls itself *)
+Lemma no_self_calls bstate caddr :
+  reachable bstate ->
+  env_contracts bstate caddr = Some (contract : WeakContract) ->
+  Forall (fun act_body =>
+    match act_body with
+    | act_transfer to _
+    | act_call to _ _ => (to =? caddr)%address = false
+    | _ => False
+    end) (outgoing_acts bstate caddr).
+Proof.
+  contract_induction; intros; auto.
+  - now inversion IH.
+  - apply Forall_app; split; auto.
+    clear IH.
+    destruct msg. destruct m.
+    + now erewrite try_transfer_new_acts_correct by eauto.
+    + now erewrite try_approve_new_acts_correct by eauto.
+    + now erewrite try_mint_or_burn_new_acts_correct by eauto.
+    + erewrite try_get_allowance_new_acts_correct by eauto.
+      constructor; auto.
+      now destruct_address_eq.
+    + erewrite try_get_balance_new_acts_correct by eauto.
+      constructor; auto.
+      now destruct_address_eq.
+    + erewrite try_get_total_supply_new_acts_correct by eauto.
+      constructor; auto.
+      now destruct_address_eq.
+    + now rewrite default_entrypoint_none in receive_some.
+  - inversion_clear IH as [|? ? head_not_me tail_not_me].
+    destruct head;
+      try contradiction;
+      destruct action_facts;
+      subst;
+      now rewrite address_eq_refl in head_not_me.
+  - now rewrite <- perm.
+  - instantiate (AddBlockFacts := fun _ _ _ _ _ _ => True).
+    instantiate (DeployFacts := fun _ _ => True).
+    instantiate (CallFacts := fun _ _ _ _ => True).
+    unset_all; subst;cbn in *.
+    destruct_chain_step; auto.
+    destruct_action_eval; auto.
+Qed.
+
+Lemma no_self_calls' : forall bstate from_addr to_addr amount msg acts,
+  reachable bstate ->
+  env_contracts bstate to_addr = Some (contract : WeakContract) ->
+  chain_state_queue bstate = {| act_from := from_addr; act_body :=
+    match msg with
+    | Some msg => act_call to_addr amount msg
+    | None => act_transfer to_addr amount
+    end |} :: acts ->
+  from_addr <> to_addr.
+Proof.
+  intros * reach deployed queue.
+  apply no_self_calls in deployed as no_self_calls; auto.
+  unfold outgoing_acts in no_self_calls.
+  rewrite queue in no_self_calls.
+  cbn in no_self_calls.
+  destruct_address_eq; auto.
+  inversion_clear no_self_calls as [|? ? hd _].
+  destruct msg;
+    now rewrite address_eq_refl in hd.
+Qed.
+
+Lemma new_acts_amount_zero : forall prev_state chain ctx msg new_state new_acts,
+  receive chain ctx prev_state msg = Some (new_state, new_acts) ->
+    sumZ (fun act => act_body_amount act) new_acts = 0%Z.
+Proof.
+  intros * receive_some.
+  destruct msg. destruct m.
+  - apply try_transfer_new_acts_correct in receive_some.
+    now subst.
+  - apply try_approve_new_acts_correct in receive_some.
+    now subst.
+  - apply try_mint_or_burn_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_allowance_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_balance_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_total_supply_new_acts_correct in receive_some.
+    now subst.
+  - now rewrite default_entrypoint_none in receive_some.
+Qed.
+
+Lemma outgoing_acts_amount_zero : forall bstate caddr,
+  reachable bstate ->
+  env_contracts bstate caddr = Some (contract : WeakContract) ->
+  Forall (fun act => act_body_amount act = 0%Z) (outgoing_acts bstate caddr).
+Proof.
+  intros * reach deployed.
+  apply (lift_outgoing_acts_prop contract); auto.
+  intros * receive_some.
+  destruct msg. destruct m.
+  - apply try_transfer_new_acts_correct in receive_some.
+    now subst.
+  - apply try_approve_new_acts_correct in receive_some.
+    now subst.
+  - apply try_mint_or_burn_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_allowance_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_balance_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_total_supply_new_acts_correct in receive_some.
+    now subst.
+  - now rewrite default_entrypoint_none in receive_some.
+Qed.
+
+(* contract only produces call acts *)
+Lemma outgoing_acts_are_calls : forall bstate caddr,
+  reachable bstate ->
+  env_contracts bstate caddr = Some (contract : WeakContract) ->
+  Forall (fun act_body =>
+    match act_body with
+    | act_call _ _ _ => True
+    | _ => False
+    end) (outgoing_acts bstate caddr).
+Proof.
+  intros * reach deployed.
+  apply (lift_outgoing_acts_prop contract); auto.
+  intros * receive_some.
+  destruct msg. destruct m.
+  - apply try_transfer_new_acts_correct in receive_some.
+    now subst.
+  - apply try_approve_new_acts_correct in receive_some.
+    now subst.
+  - apply try_mint_or_burn_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_allowance_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_balance_new_acts_correct in receive_some.
+    now subst.
+  - apply try_get_total_supply_new_acts_correct in receive_some.
+    now subst.
+  - now rewrite default_entrypoint_none in receive_some.
+Qed.
+
+
+(* ------------------- Contract balance facts ------------------- *)
+
+(* Contract balance should never change and thus always be equal to the deploy amount *)
+Lemma contract_balance_bound' : forall bstate caddr (trace : ChainTrace empty_state bstate),
+  let effective_balance := (env_account_balances bstate caddr - (sumZ (fun act => act_body_amount act) (outgoing_acts bstate caddr)))%Z in
+  env_contracts bstate caddr = Some (contract : WeakContract) ->
+  exists deploy_info,
+    deployment_info Setup trace caddr = Some deploy_info
+    /\ effective_balance = deploy_info.(deployment_amount).
+Proof.
+  intros.
+  unfold effective_balance.
+  contract_induction; intros; auto.
+  - cbn.
+    lia.
+  - cbn in IH.
+    lia.
+  - instantiate (CallFacts := fun _ ctx _ _ =>
+      (0 <= ctx_amount ctx)%Z /\ ctx_from ctx <> ctx_contract_address ctx).
+    destruct facts as (ctx_amount_positive & _).
+    apply contract_not_payable in receive_some as not_payable.
+    apply new_acts_amount_zero in receive_some as amount_zero_new_acts.
+    apply Z.le_antisymm in ctx_amount_positive; auto.
+    rewrite ctx_amount_positive, Z.sub_0_r in IH.
+    now rewrite sumZ_app, amount_zero_new_acts, Z.add_0_l.
+  - now destruct facts.
+  - now erewrite sumZ_permutation in IH by eauto.
+  - instantiate (AddBlockFacts := fun _ _ _ _ _ _ => True).
+    instantiate (DeployFacts := fun _ _ => True).
+    unset_all; subst.
+    destruct_chain_step; auto.
+    destruct_action_eval; auto.
+    intros cstate contract_deployed deployed_state.
+    subst. cbn.
+    split.
+    + now apply Z.ge_le.
+    + now eapply no_self_calls'.
+Qed.
+
+Lemma contract_balance_bound : forall bstate caddr (trace : ChainTrace empty_state bstate),
+  env_contracts bstate caddr = Some (contract : WeakContract) ->
+  exists deploy_info,
+    deployment_info Setup trace caddr = Some deploy_info
+    /\ env_account_balances bstate caddr = deploy_info.(deployment_amount).
+Proof.
+  intros * deployed.
+  specialize contract_balance_bound' as (dep_info & deployment_info_eq & balance_bound); eauto.
+  eexists.
+  rewrite deployment_info_eq.
+  split; eauto.
+  rewrite <- balance_bound.
+  rewrite Zminus_0_l_reverse, Z.sub_cancel_l at 1.
+  apply outgoing_acts_amount_zero in deployed as act_amount_zero;
+    try now constructor.
+  clear balance_bound deployment_info_eq dep_info trace deployed.
+  induction (outgoing_acts bstate caddr).
+  - reflexivity.
+  - cbn.
+    apply list.Forall_cons in act_amount_zero as (act_amount_zero & acts_amount_zero).
+    rewrite act_amount_zero, Z.add_0_l.
+    now apply IHl.
+Qed.
+
+
+
 (* ------------------- Total supply / token balance facts ------------------- *)
 
 (* sum of all token balances *)
 Definition sum_balances state :=
   sumN (fun '(k, v) => v) (FMap.elements (tokens state)).
+
+(* The balance of a single account is always less than
+   or equal to the sum of all balances *)
+Lemma balance_le_sum_balances : forall addr state,
+  with_default 0 (FMap.find addr (tokens state)) <= sum_balances state.
+Proof.
+  intros.
+  destruct FMap.find eqn:balance.
+  - eapply FMap.In_elements, sumN_in_le in balance.
+    eapply N.le_trans; cycle 1; eauto.
+  - apply N.le_0_l.
+Qed.
 
 Lemma sum_balances_eq_total_supply : forall bstate caddr,
   reachable bstate ->
@@ -879,7 +1146,90 @@ Lemma sum_balances_eq_total_supply : forall bstate caddr,
     contract_state bstate caddr = Some cstate
     /\ total_supply cstate = sum_balances cstate.
 Proof.
-Admitted.
+  contract_induction; intros; auto.
+  - unfold sum_balances.
+    now erewrite init_total_supply_correct, init_balances_correct.
+  - destruct msg. destruct m.
+    + erewrite <- try_transfer_preserves_total_supply; eauto.
+      rename t into param.
+      unfold sum_balances.
+      receive_simpl.
+      cbn.
+      rename H1 into enough_balance.
+      apply N.ltb_ge in enough_balance.
+      clear tag ctx_amount_zero g g0 H facts from_other new_acts new_state dep_info ctx
+          prev_out_queue prev_inc_calls prev_out_txs trace caddr AddBlockFacts DeployFacts
+          CallFacts chain bstate.
+      destruct (address_eqb_spec param.(from) param.(to)) as
+        [<-| from_to_ne];
+        destruct (FMap.find (from param) (tokens prev_state)) eqn:from_balance;
+        destruct (FMap.find (to param) (tokens prev_state)) eqn:to_balance;
+          cbn in enough_balance;
+          repeat match goal with
+            | H : ?x = ?y |- context [ ?x ] => rewrite H
+            | H : _ <= 0 |- _ => apply N.lt_eq_cases in H as [H | H]; try lia; subst
+            | |- context [ FMap.find ?x (FMap.add ?x _ _) ] => rewrite FMap.find_add
+            | |- context [ FMap.add ?x _ (FMap.add ?x _ _) ] => rewrite FMap.add_add
+            | H : ?x <> ?y |- context [ FMap.find ?x (FMap.add ?y _ _) ] => rewrite FMap.find_add_ne; eauto
+            | H : ?y <> ?x |- context [ FMap.find ?x (FMap.add ?y _ _) ] => rewrite FMap.find_add_ne; eauto
+            | H : FMap.find ?x _ = Some _ |- context [ FMap.elements (FMap.add ?x _ _) ] => rewrite FMap.elements_add_existing; eauto
+            | H : FMap.find ?x _ = None |- context [ FMap.elements (FMap.add ?x _ _) ] => rewrite FMap.elements_add; eauto
+            | |- context [ FMap.remove ?x (FMap.add ?x _ _) ] => rewrite fin_maps.delete_insert_delete
+            | H : FMap.find ?x ?m = Some _ |- context [ sumN _ ((_, _) :: FMap.elements (FMap.remove ?x ?m)) ] => rewrite fin_maps.map_to_list_delete; auto
+            | H : FMap.find ?x _ = Some ?n |- context [ sumN _ ((?x, ?n) :: (_, _) :: FMap.elements (FMap.remove ?x _)) ] => rewrite sumN_swap, fin_maps.map_to_list_delete; auto
+            | |- context [ sumN _ ((?t, ?n + ?m) :: _) ] => erewrite sumN_split with (x:= (t, n)) (y := (_, m)) by lia
+            | |- context [ sumN _ ((_, 0) :: (?x, ?n) :: _) ] => erewrite <- sumN_split with (z := (x, n)) by auto
+            | |- context [ sumN _ ((_, ?n) :: (?x, ?m - ?n) :: _) ] => erewrite <- sumN_split with (z := (x, n + m - n))
+            | |- context [ sumN _ ((?x, ?m - ?n) :: (_, ?n) :: _) ] => erewrite <- sumN_split with (z := (x, n + m - n))
+            | |- context [ with_default _ None ] => unfold with_default
+            | |- context [ with_default _ (Some _) ] => unfold with_default
+           end; try easy.
+    + erewrite <- try_approve_preserves_total_supply; eauto.
+      unfold sum_balances.
+      erewrite <- try_approve_preserves_balances; eauto.
+    + rename m into param.
+      unfold sum_balances.
+      receive_simpl.
+      cbn.
+      clear tag ctx_amount_zero H facts from_other new_acts new_state dep_info ctx
+          prev_out_queue prev_inc_calls prev_out_txs trace caddr AddBlockFacts DeployFacts
+          CallFacts chain bstate.
+      rename H0 into enough_balance.
+      apply Z.ltb_ge in enough_balance.
+      destruct (FMap.find (target param) (tokens prev_state)) eqn:target_balance; cbn.
+      * specialize (balance_le_sum_balances param.(target) prev_state) as n_le_supply.
+        rewrite target_balance in n_le_supply.
+        cbn in n_le_supply.
+        rewrite FMap.elements_add_existing by eauto.
+        cbn.
+        rewrite N.add_comm.
+        assert (N_add_sub_move : forall n m p, p <= n -> n - p = m -> n = m + p) by lia.
+        apply N_add_sub_move; try lia.
+        rewrite <- Zabs2N.abs_N_nonneg by assumption.
+        rewrite <- Zabs2N.inj_sub by (split; [assumption | lia]).
+        rewrite Z.add_add_simpl_r_r, Zabs2N.inj_sub, !Zabs2N.id by lia.
+        apply N.add_sub_eq_r.
+        change n with ((fun '(_, v) => v) (target param, n)).
+        now rewrite sumN_inv, fin_maps.map_to_list_delete by assumption.
+      * rewrite FMap.elements_add by auto. cbn.
+        unfold sum_balances in IH.
+        rewrite <- IH.
+        now rewrite <- Zabs2N.id, N2Z.inj_add, Z2N.id.
+    + now apply try_get_allowance_preserves_state in receive_some.
+    + now apply try_get_balance_preserves_state in receive_some.
+    + now apply try_get_total_supply_preserves_state in receive_some.
+    + now rewrite default_entrypoint_none in receive_some.
+  - now instantiate (CallFacts := fun _ ctx _ _ =>  ctx_from ctx <> ctx_contract_address ctx).
+  - instantiate (AddBlockFacts := fun _ _ _ _ _ _ => True).
+    instantiate (DeployFacts := fun _ _ => True).
+    unset_all; subst.
+    destruct_chain_step; auto.
+    destruct_action_eval; auto.
+    intros.
+    subst. cbn.
+    now eapply no_self_calls'.
+  Unshelve. all : destruct param; eauto.
+Qed.
 
 Lemma token_balance_le_total_supply : forall bstate caddr,
   reachable bstate ->
@@ -888,21 +1238,16 @@ Lemma token_balance_le_total_supply : forall bstate caddr,
     contract_state bstate caddr = Some cstate
     /\ forall addr, with_default 0 (FMap.find addr (tokens cstate)) <= total_supply cstate.
 Proof.
-Admitted.
-
-
-
-
-
-(*
-  TODO
-    init correct
-    sum of balances eq total_supply
-    single token balance less than total supply
-*)
-
-
-
+  intros * reach deployed.
+  apply sum_balances_eq_total_supply in deployed as
+    (cstate & deployed_state & sum_eq_supply); auto.
+  eexists.
+  rewrite deployed_state, sum_eq_supply.
+  clear reach deployed_state sum_eq_supply caddr bstate.
+  split; auto.
+  intros.
+  apply balance_le_sum_balances.
+Qed.
 
 End Theories.
 End LQTFA12.
