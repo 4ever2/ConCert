@@ -329,18 +329,6 @@ Ltac receive_simpl_step :=
            | _ => idtac
     end end
   end.
-(*
-  | H : context[receive] |- _ => unfold receive in H
-  | |- context[receive] => unfold receive
-  | H : context[Blockchain.receive] |- _ => unfold Blockchain.receive; cbn in H
-  | H : context[try_transfer] |- _ => unfold try_transfer in H
-  | H : context[try_transfer_from] |- _ => unfold try_transfer_from in H
-  | H : context[try_approve] |- _ => unfold try_approve in H
-  | |- context[Blockchain.receive] => unfold Blockchain.receive; cbn
-  | |- context[try_transfer] => unfold try_transfer
-  | |- context[try_transfer_from] => unfold try_transfer_from
-  | |- context[try_approve] => unfold try_approve
-*)
 
 Tactic Notation "receive_simpl" := repeat receive_simpl_step.
 
