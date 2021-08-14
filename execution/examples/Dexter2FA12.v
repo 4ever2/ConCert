@@ -69,7 +69,9 @@ Record State :=
 
 Record Setup :=
   build_setup {
-    admin_ : Address
+    admin_ : Address;
+    lqt_provider : Address;
+    initial_pool : N
 }.
 
 (* Any contract that wants to receive callback messages from the FA1.2 liquidity contract
@@ -213,10 +215,10 @@ Definition try_get_total_supply (sender : Address) (param : getTotalSupply_param
 
 Definition init (chain : Chain) (ctx : ContractCallContext) (setup : Setup) : option State :=
   Some {|
-    tokens := FMap.empty;
+    tokens := FMap.add setup.(lqt_provider) setup.(initial_pool) FMap.empty;
     allowances := FMap.empty;
     admin := setup.(admin_);
-    total_supply := 0
+    total_supply := setup.(initial_pool);
   |}.
 
 Open Scope Z_scope.
@@ -861,7 +863,7 @@ Qed.
 (* After initalization no accounts should hold tokens *)
 Lemma init_balances_correct : forall chain ctx setup state,
   init chain ctx setup = Some state ->
-    state.(tokens) = FMap.empty.
+    state.(tokens) = FMap.add setup.(lqt_provider) setup.(initial_pool) FMap.empty.
 Proof.
   intros * init_some.
   now inversion init_some.
@@ -886,7 +888,7 @@ Qed.
 
 Lemma init_total_supply_correct : forall chain ctx setup state,
   init chain ctx setup = Some state ->
-    state.(total_supply) = 0.
+    state.(total_supply) = setup.(initial_pool).
 Proof.
   intros * init_some.
   now inversion init_some.
@@ -1136,7 +1138,9 @@ Lemma sum_balances_eq_total_supply : forall bstate caddr,
 Proof.
   contract_induction; intros; auto.
   - unfold sum_balances.
-    now erewrite init_total_supply_correct, init_balances_correct.
+    erewrite init_total_supply_correct, init_balances_correct; eauto.
+    rewrite FMap.elements_add, FMap.elements_empty by auto.
+    now cbn.
   - destruct msg. destruct m.
     + erewrite <- try_transfer_preserves_total_supply; eauto.
       rename t into param.

@@ -172,7 +172,7 @@ Definition result : Type := option (State * list ActionBody).
 Definition isNone {A : Type} (a : option A) := match a with | Some _ => false | None => true end.
 Definition isSome {A : Type} (a : option A) := negb (isNone a).
 Definition returnIf (cond : bool) := if cond then None else Some tt.
-Definition is_a_nat (n : Z) : bool := Z.leb 0 n.
+Definition sub (n m : N) : option N := do _ <- returnIf (n <? m) ; Some (n - m).
 Definition div (n m : N) : option N := do _ <- returnIf (m =? 0) ; Some (n / m).
 Definition ceildiv (n m : N) : option N :=
   if N.modulo n m =? 0
@@ -185,6 +185,8 @@ Definition ceildiv_ (n m : N) : N :=
 Opaque ceildiv.
 Opaque ceildiv_.
 Opaque div.
+Opaque sub.
+
 
 (* Place holder for tezos set delegate operation *)
 Definition set_delegate_call (addr : option Address) : list ActionBody := [].
@@ -235,14 +237,15 @@ Definition remove_liquidity (chain : Chain) (ctx : ContractCallContext)
   do tokens_withdrawn <- div (param.(lqtBurned) * state.(tokenPool)) state.(lqtTotal) ; (* error_DIV_by_0 *)
   do _ <- returnIf (xtz_withdrawn <? param.(minXtzWithdrawn)) ; (* error_THE_AMOUNT_OF_XTZ_WITHDRAWN_MUST_BE_GREATER_THAN_OR_EQUAL_TO_MIN_XTZ_WITHDRAWN *)
   do _ <- returnIf (tokens_withdrawn <? param.(minTokensWithdrawn)) ; (* error_THE_AMOUNT_OF_TOKENS_WITHDRAWN_MUST_BE_GREATER_THAN_OR_EQUAL_TO_MIN_TOKENS_WITHDRAWN *)
-  do _ <- returnIf (state.(lqtTotal) <? param.(lqtBurned)) ; (* error_CANNOT_BURN_MORE_THAN_THE_TOTAL_AMOUNT_OF_LQT *)
-  do _ <- returnIf (state.(tokenPool) <? tokens_withdrawn) ; (* error_TOKEN_POOL_MINUS_TOKENS_WITHDRAWN_IS_NEGATIVE *)
+  do new_lqtPool <- sub state.(lqtTotal) param.(lqtBurned) ; (* error_CANNOT_BURN_MORE_THAN_THE_TOTAL_AMOUNT_OF_LQT *)
+  do new_tokenPool <- sub state.(tokenPool) tokens_withdrawn ; (* error_TOKEN_POOL_MINUS_TOKENS_WITHDRAWN_IS_NEGATIVE *)
+  do new_xtzPool <- sub state.(xtzPool) xtz_withdrawn ; (* mutez subtraction run time error *)
   do op_lqt <- mint_or_burn state ctx.(ctx_from) (0 - (Z.of_N param.(lqtBurned)))%Z ;
   let op_token := token_transfer state ctx.(ctx_contract_address) param.(liquidity_to) tokens_withdrawn in
   do opt_xtz <- xtz_transfer param.(liquidity_to) (Z.of_N xtz_withdrawn) ;
-  let new_state := state<| xtzPool := state.(xtzPool) - xtz_withdrawn |>
-                        <| lqtTotal := state.(lqtTotal) - param.(lqtBurned) |>
-                        <| tokenPool := state.(tokenPool) - tokens_withdrawn |> in
+  let new_state := state<| xtzPool := new_xtzPool |>
+                        <| lqtTotal := new_lqtPool|>
+                        <| tokenPool := new_tokenPool |> in
   Some (new_state, [op_lqt; op_token; opt_xtz]).
 
 Definition xtz_to_token (chain : Chain) (ctx : ContractCallContext)
@@ -254,9 +257,9 @@ Definition xtz_to_token (chain : Chain) (ctx : ContractCallContext)
     ((Z.to_N ctx.(ctx_amount)) * 997 * state.(tokenPool))
       (state.(xtzPool) * 1000 + ((Z.to_N ctx.(ctx_amount)) * 997)) ; (* error_DIV_by_0 *)
   do _ <- returnIf (tokens_bought <? param.(minTokensBought)) ; (* error_TOKENS_BOUGHT_MUST_BE_GREATER_THAN_OR_EQUAL_TO_MIN_TOKENS_BOUGHT *)
-  do _ <- returnIf (state.(tokenPool) <? tokens_bought) ; (* error_TOKEN_POOL_MINUS_TOKENS_BOUGHT_IS_NEGATIVE *)
+  do new_tokenPool <- sub state.(tokenPool) tokens_bought ; (* error_TOKEN_POOL_MINUS_TOKENS_BOUGHT_IS_NEGATIVE *)
   let new_state := state<| xtzPool := state.(xtzPool) + (Z.to_N ctx.(ctx_amount)) |>
-                        <| tokenPool := state.(tokenPool) - tokens_bought |> in
+                        <| tokenPool := new_tokenPool |> in
   let op := token_transfer state ctx.(ctx_contract_address) param.(tokens_to) tokens_bought in
   Some (new_state, [op]).
 
@@ -270,10 +273,11 @@ Definition token_to_xtz (chain : Chain) (ctx : ContractCallContext)
     (param.(tokensSold) * 997 * state.(xtzPool))
       (state.(tokenPool) * 1000 + (param.(tokensSold) * 997)) ; (* error_DIV_by_0 *)
   do _ <- returnIf (xtz_bought <? param.(minXtzBought)) ; (* error_XTZ_BOUGHT_MUST_BE_GREATER_THAN_OR_EQUAL_TO_MIN_XTZ_BOUGHT *)
+  do new_xtzPool <- sub state.(xtzPool) xtz_bought ; (* mutez subtraction run time error *)
   let op_token := token_transfer state ctx.(ctx_from) ctx.(ctx_contract_address) param.(tokensSold) in
   do op_tez <- xtz_transfer param.(xtz_to) (Z.of_N xtz_bought) ;
   let new_state := state<| tokenPool := state.(tokenPool) + param.(tokensSold) |>
-                        <| xtzPool := state.(xtzPool) - xtz_bought |> in
+                        <| xtzPool := new_xtzPool |> in
   Some (new_state, [op_token; op_tez]).
 
 Definition default_ (chain : Chain) (ctx : ContractCallContext)
@@ -344,8 +348,9 @@ Definition token_to_token (chain : Chain) (ctx : ContractCallContext)
   do xtz_bought <- div
     (param.(tokensSold_) * 997 * state.(xtzPool))
       (state.(tokenPool) * 1000 + (param.(tokensSold_) * 997)) ; (* error_DIV_by_0 *)
+  do new_xtzPool <- sub state.(xtzPool) xtz_bought ; (* mutez subtraction run time error *)
   let new_state := state<| tokenPool := state.(tokenPool) + param.(tokensSold_) |>
-                        <| xtzPool := state.(xtzPool) - xtz_bought |> in
+                        <| xtzPool := new_xtzPool |> in
   let op1 := token_transfer state ctx.(ctx_from) ctx.(ctx_contract_address) param.(tokensSold_) in
   let op2 := act_call param.(outputDexterContract) (Z.of_N xtz_bought)
     (serialize (FA2Token.other_msg (XtzToToken {|
@@ -431,6 +436,138 @@ Ltac returnIf H :=
       rename G into H
   end.
 
+Transparent div.
+Transparent ceildiv.
+Transparent ceildiv_.
+Lemma div_eq : forall n m p,
+  div n m = Some p ->
+  n / m = p /\ m <> 0.
+Proof.
+  intros * div_some.
+  unfold div in div_some.
+  cbn in div_some.
+  destruct_match eqn:m_not_zero in div_some;
+    try congruence.
+  returnIf m_not_zero.
+  now apply N.eqb_neq in m_not_zero.
+Qed.
+
+Lemma div_zero : forall n m,
+  div n m = None ->
+  m = 0.
+Proof.
+  intros * div_some.
+  cbn in div_some.
+  destruct_match eqn:m_zero in div_some;
+    try congruence.
+  returnIf m_zero.
+  now apply N.eqb_eq in m_zero.
+Qed.
+Opaque div.
+
+Lemma ceildiv_eq : forall n m p,
+  ceildiv n m = Some p ->
+  ceildiv_ n m = p /\ m <> 0.
+Proof.
+  intros * ceildiv_some.
+  unfold ceildiv_.
+  unfold ceildiv in ceildiv_some.
+  destruct_match eqn:modulo_zero.
+  - now apply div_eq in ceildiv_some.
+  - cbn in ceildiv_some.
+    destruct_match eqn:div_some in ceildiv_some;
+      try congruence.
+    apply div_eq in div_some.
+    now inversion_clear ceildiv_some.
+Qed.
+
+Lemma ceildiv_zero : forall n m,
+  ceildiv n m = None ->
+  m = 0.
+Proof.
+  intros * ceildiv_some.
+  unfold ceildiv in ceildiv_some.
+  destruct_match eqn:modulo_zero in ceildiv_some.
+  - now apply div_zero in ceildiv_some.
+  - cbn in ceildiv_some.
+    destruct_match eqn:div_some in ceildiv_some;
+      try congruence.
+    now apply div_zero in div_some.
+Qed.
+Opaque ceildiv.
+Opaque ceildiv_.
+
+Transparent sub.
+Lemma sub_eq : forall n m p,
+  sub n m = Some p ->
+  n - m = p /\ m <= n.
+Proof.
+  intros * sub_some.
+  cbn in sub_some.
+  destruct_match eqn:m_le_n in sub_some;
+    try congruence.
+  returnIf m_le_n.
+  now rewrite <- N.ltb_ge.
+Qed.
+
+Lemma sub_fail : forall n m,
+  sub n m = None ->
+  n < m.
+Proof.
+  intros * sub_some.
+  cbn in sub_some.
+  destruct_match eqn:n_lt_m in sub_some;
+    try congruence.
+  returnIf n_lt_m.
+  now apply N.ltb_lt.
+Qed.
+Opaque sub.
+
+Lemma isSome_some : forall {A : Type} (x : option A) (y : A),
+  x = Some y -> isSome x = true.
+Proof.
+  intros.
+  now subst.
+Qed.
+
+Lemma isSome_none : forall {A : Type} (x : option A),
+  x = None -> isSome x = false.
+Proof.
+  intros.
+  now subst.
+Qed.
+
+Lemma isSome_exists : forall {A : Type} (x : option A),
+  isSome x = true <-> exists y : A, x = Some y.
+Proof.
+  split.
+  - now destruct x eqn:x_eq.
+  - intros (y & x_eq).
+    now eapply isSome_some.
+Qed.
+
+Lemma isSome_not_exists : forall {A : Type} (x : option A),
+  isSome x = false <-> forall y : A, x <> Some y.
+Proof.
+  split.
+  - now destruct x eqn:x_eq.
+  - intros x_eq.
+    eapply isSome_none.
+    now destruct x.
+Qed.
+
+Ltac math_convert_step :=
+  match goal with
+  | H : sub _ _ = Some _ |- _ => apply sub_eq in H as [<- H]
+  | H : sub _ _ = None |- _ => apply sub_fail in H
+  | H : div _ _ = Some _ |- _ => apply div_eq in H as [<- H]
+  | H : div _ _ = None |- _ => apply div_zero in H
+  | H : ceildiv _ _ = Some _ |- _ => apply ceildiv_eq in H as [<- H]
+  | H : ceildiv _ _ = None |- _ => apply ceildiv_zero in H
+  end.
+
+Tactic Notation "math_convert" := repeat math_convert_step.
+
 Ltac receive_simpl_step :=
   match goal with
   | H : Blockchain.receive _ _ _ _ _ = Some (_, _) |- _ =>
@@ -479,100 +616,6 @@ Ltac receive_simpl_step :=
   end.
 
 Tactic Notation "receive_simpl" := repeat receive_simpl_step.
-
-Transparent div.
-Transparent ceildiv.
-Transparent ceildiv_.
-Lemma div_eq : forall n m p,
-  div n m = Some p ->
-  n / m = p /\ m <> 0.
-Proof.
-  intros * div_some.
-  unfold div in div_some.
-  cbn in div_some.
-  destruct_match eqn:m_not_zero in div_some;
-    try congruence.
-  receive_simpl.
-  now apply N.eqb_neq in m_not_zero.
-Qed.
-
-Lemma div_zero : forall n m,
-  div n m = None ->
-  m = 0.
-Proof.
-  intros * div_some.
-  cbn in div_some.
-  destruct_match eqn:m_zero in div_some;
-    try congruence.
-  receive_simpl.
-  now apply N.eqb_eq in m_zero.
-Qed.
-Opaque div.
-
-Lemma ceildiv_eq : forall n m p,
-  ceildiv n m = Some p ->
-  ceildiv_ n m = p /\ m <> 0.
-Proof.
-  intros * ceildiv_some.
-  unfold ceildiv_.
-  unfold ceildiv in ceildiv_some.
-  destruct_match eqn:modulo_zero.
-  - now apply div_eq in ceildiv_some.
-  - cbn in ceildiv_some.
-    destruct_match eqn:div_some in ceildiv_some;
-      try congruence.
-    apply div_eq in div_some.
-    now inversion_clear ceildiv_some.
-Qed.
-
-Lemma ceildiv_zero : forall n m,
-  ceildiv n m = None ->
-  m = 0.
-Proof.
-  intros * ceildiv_some.
-  unfold ceildiv in ceildiv_some.
-  destruct_match eqn:modulo_zero in ceildiv_some.
-  - now apply div_zero in ceildiv_some.
-  - cbn in ceildiv_some.
-    destruct_match eqn:div_some in ceildiv_some;
-      try congruence.
-    now apply div_zero in div_some.
-Qed.
-Opaque ceildiv.
-Opaque ceildiv_.
-
-Lemma isSome_some : forall {A : Type} (x : option A) (y : A),
-  x = Some y -> isSome x = true.
-Proof.
-  intros.
-  now subst.
-Qed.
-
-Lemma isSome_none : forall {A : Type} (x : option A),
-  x = None -> isSome x = false.
-Proof.
-  intros.
-  now subst.
-Qed.
-
-Lemma isSome_exists : forall {A : Type} (x : option A),
-  isSome x = true <-> exists y : A, x = Some y.
-Proof.
-  split.
-  - now destruct x eqn:x_eq.
-  - intros (y & x_eq).
-    now eapply isSome_some.
-Qed.
-
-Lemma isSome_not_exists : forall {A : Type} (x : option A),
-  isSome x = false <-> forall y : A, x <> Some y.
-Proof.
-  split.
-  - now destruct x eqn:x_eq.
-  - intros x_eq.
-    eapply isSome_none.
-    now destruct x.
-Qed.
 
 
 
@@ -972,11 +1015,7 @@ Lemma add_liquidity_state_eq : forall prev_state new_state chain ctx new_acts pa
 Proof.
   intros * receive_some.
   receive_simpl.
-  rename H1 into div_some.
-  rename H2 into ceildiv_some.
-  apply div_eq in div_some as (? & _).
-  apply ceildiv_eq in ceildiv_some as (? & _).
-  now subst.
+  now math_convert.
 Qed.
 
 Lemma add_liquidity_correct : forall prev_state new_state chain ctx new_acts param,
@@ -1009,11 +1048,7 @@ Lemma add_liquidity_new_acts_correct : forall chain ctx prev_state new_state new
 Proof.
   intros * receive_some.
   receive_simpl.
-  rename H1 into div_some.
-  rename H2 into ceildiv_some.
-  apply div_eq in div_some as (? & _).
-  apply ceildiv_eq in ceildiv_some as (? & _).
-  subst.
+  math_convert.
   unfold token_transfer.
   repeat f_equal.
   give_up.
@@ -1038,11 +1073,7 @@ Lemma add_liquidity_new_acts_correct : forall chain ctx prev_state new_state new
 Proof.
   intros * receive_some.
   receive_simpl.
-  rename H1 into div_some.
-  rename H2 into ceildiv_some.
-  apply div_eq in div_some as (? & _).
-  apply ceildiv_eq in ceildiv_some as (? & _).
-  now subst.
+  now math_convert.
 Qed.
 
 (* If the requirements are met then then receive on add_liquidity msg must succeed and
@@ -1066,37 +1097,27 @@ Proof.
     cbn.
     destruct_match eqn:updating_check.
     destruct_match eqn:deadline_check.
-    destruct_match eqn:div_check.
-    destruct_match eqn:ceildiv_check.
+    destruct_match eqn:div_check; math_convert.
+    destruct_match eqn:ceildiv_check; math_convert.
     destruct_match eqn:max_tokens_check.
     destruct_match eqn:min_lqt_check.
     destruct_match eqn:mint_act; try congruence;
     destruct_match eqn:lqt_addr_set_check in mint_act; try congruence.
-    + inversion_clear div_check.
-      inversion_clear ceildiv_check.
-      eauto.
-    + apply address_eq_ne in lqt_addr_set.
-      now rewrite lqt_addr_set in lqt_addr_set_check.
-    + apply div_eq in div_check as [<- _].
-      apply N.ltb_ge in enough_minted.
-      now rewrite enough_minted in min_lqt_check.
-    + apply ceildiv_eq in ceildiv_check as [<- _].
-      apply N.ltb_ge in max_tokens_not_hit.
-      now rewrite max_tokens_not_hit in max_tokens_check.
-    + now apply ceildiv_zero in ceildiv_check.
-    + now apply div_zero in div_check.
+    + eauto.
+    + now apply address_eq_ne in lqt_addr_set.
+    + now apply N.ltb_ge in enough_minted.
+    + now apply N.ltb_ge in max_tokens_not_hit.
+    + congruence.
+    + congruence.
     + apply leb_correct_conv in deadline_not_hit.
       now rewrite deadline_not_hit in deadline_check.
     + now rewrite not_updating in updating_check.
   - intros (new_state & new_acts & receive_some).
     receive_simpl.
-    rename H1 into div_some.
-    rename H2 into ceildiv_some.
+    math_convert.
     rename H0 into deadline_not_hit.
     rename H3 into max_not_hit.
     rename H4 into min_not_hit.
-    apply div_eq in div_some as [<- xtzPool_zero].
-    apply ceildiv_eq in ceildiv_some as [<- _].
     apply leb_complete_conv in deadline_not_hit.
     apply N.ltb_ge in max_not_hit.
     apply N.ltb_ge in min_not_hit.
@@ -1108,7 +1129,7 @@ Qed.
 (* Remove liquidity correct                                               *)
 (* ---------------------------------------------------------------------- *)
 
-(* remove_liquidity only changes selfIsUpdatingTokenPool and tokenPool in state *)
+(* remove_liquidity only changes lqtTotal, tokenPool and xtzPool in state *)
 Lemma remove_liquidity_state_eq : forall prev_state new_state chain ctx new_acts param,
   let xtz_withdrawn := (param.(lqtBurned) * prev_state.(xtzPool)) / prev_state.(lqtTotal) in
   let tokens_withdrawn := (param.(lqtBurned) * prev_state.(tokenPool)) / prev_state.(lqtTotal) in
@@ -1119,11 +1140,7 @@ Lemma remove_liquidity_state_eq : forall prev_state new_state chain ctx new_acts
 Proof.
   intros * receive_some.
   receive_simpl.
-  rename H2 into xtz_div_some.
-  rename H3 into token_div_some.
-  apply div_eq in xtz_div_some as (? & _).
-  apply div_eq in token_div_some as (? & _).
-  now subst.
+  now math_convert.
 Qed.
 
 Lemma remove_liquidity_correct : forall prev_state new_state chain ctx new_acts param,
@@ -1158,12 +1175,8 @@ Lemma remove_liquidity_new_acts_correct : forall chain ctx prev_state new_state 
 Proof.
   intros * receive_some.
   receive_simpl.
-  rename H2 into xtz_div_some.
-  rename H3 into token_div_some.
-  rename H9 into xtz_act.
-  apply div_eq in xtz_div_some as (? & _).
-  apply div_eq in token_div_some as (? & _).
-  subst.
+  math_convert.
+  rename H10 into xtz_act.
   unfold xtz_transfer in xtz_act.
   destruct_match in xtz_act; try congruence.
   now inversion_clear xtz_act.
@@ -1181,9 +1194,7 @@ Lemma remove_liquidity_is_some : forall prev_state chain ctx param,
   param.(minXtzWithdrawn) <= xtz_withdrawn /\
   param.(minTokensWithdrawn) <= tokens_withdrawn /\
   tokens_withdrawn <= prev_state.(tokenPool) /\
-  (* xtz_withdrawn <= prev_state.(xtzPool) /\ *)
-  (* Listed as success condition in the informal specification but not checked in the code since it
-      is a run-time error in tezos. Therefore we cannot check this in coq *)
+  xtz_withdrawn <= prev_state.(xtzPool) /\
   param.(lqtBurned) <= prev_state.(lqtTotal) /\
   address_is_contract param.(liquidity_to) = false /\
   prev_state.(lqtAddress) <> prev_state.(nullAddress)
@@ -1193,23 +1204,20 @@ Proof.
   split.
   - intros (not_updating & deadline_not_hit & ctx_amount_zero &
             lqtPool_not_zero & enough_xtz_withdrawn & enough_tokens_withdrawn &
-            tokens_withdrawn_le_total & lqt_burned_le_total &
+            tokens_withdrawn_le_total & xtz_withdrawn_le_total & lqt_burned_le_total &
             to_not_contract & lqt_addr_set).
     unfold receive.
     cbn.
     destruct_match eqn:updating_check.
     destruct_match eqn:deadline_check.
     destruct_match eqn:ctx_amount_check.
-    destruct_match eqn:xtz_div_check;
-      [apply div_eq in xtz_div_check as [<- _] |
-       now apply div_zero in xtz_div_check].
-    destruct_match eqn:tokens_div_check;
-      [apply div_eq in tokens_div_check as [<- _] |
-       now apply div_zero in tokens_div_check].
+    destruct_match eqn:xtz_div_check; math_convert; try easy.
+    destruct_match eqn:tokens_div_check; math_convert; try easy.
     destruct_match eqn:min_xtz_check.
     destruct_match eqn:min_tokens_check.
-    destruct_match eqn:burned_check.
-    destruct_match eqn:token_pool_check.
+    destruct_match eqn:burned_check; math_convert; try easy.
+    destruct_match eqn:token_pool_check; math_convert; try easy.
+    destruct_match eqn:xtz_pool_check; math_convert; try easy.
     destruct_match eqn:mint_act; try congruence;
     destruct_match eqn:lqt_addr_set_check in mint_act; try congruence.
     destruct_match eqn:transfer_act.
@@ -1217,8 +1225,6 @@ Proof.
     + unfold xtz_transfer in transfer_act.
       now rewrite to_not_contract in transfer_act.
     + now apply address_eq_ne in lqt_addr_set.
-    + now apply N.ltb_ge in tokens_withdrawn_le_total.
-    + now apply N.ltb_ge in lqt_burned_le_total.
     + now apply N.ltb_ge in enough_tokens_withdrawn.
     + now apply N.ltb_ge in enough_xtz_withdrawn.
     + now apply Z.ltb_ge in ctx_amount_zero.
@@ -1227,22 +1233,15 @@ Proof.
     + now rewrite not_updating in updating_check.
   - intros (new_state & new_acts & receive_some).
     receive_simpl.
-    rename H2 into xtz_div_some.
-    rename H3 into tokens_div_some.
+    math_convert.
     rename H0 into deadline_not_hit.
     rename H1 into ctx_amount_zero.
     rename H4 into enough_xtz_withdrawn.
     rename H5 into enough_tokens_withdrawn.
-    rename H6 into lqt_burned_le_total.
-    rename H7 into tokens_withdrawn_le_total.
-    rename H9 into transfer_act.
-    apply div_eq in xtz_div_some as [<- lqtTotal_zero].
-    apply div_eq in tokens_div_some as [<- _].
+    rename H10 into transfer_act.
     apply leb_complete_conv in deadline_not_hit.
     apply N.ltb_ge in enough_tokens_withdrawn.
     apply N.ltb_ge in enough_xtz_withdrawn.
-    apply N.ltb_ge in lqt_burned_le_total.
-    apply N.ltb_ge in tokens_withdrawn_le_total.
     apply Z.ltb_ge in ctx_amount_zero.
     unfold xtz_transfer in transfer_act.
     destruct_match eqn:to_not_contract in transfer_act;
@@ -1255,42 +1254,331 @@ Qed.
 (* xtz to token correct                                                   *)
 (* ---------------------------------------------------------------------- *)
 
-(*
-TODO
+(* xtz_to_token only changes tokenPool and xtzPool in state *)
+Lemma xtz_to_token_state_eq : forall prev_state new_state chain ctx new_acts param,
+  let tokens_bought := ((Z.to_N ctx.(ctx_amount)) * 997 * prev_state.(tokenPool)) /
+                          (prev_state.(xtzPool) * 1000 + ((Z.to_N ctx.(ctx_amount)) * 997)) in
+  receive chain ctx prev_state (Some (FA2Token.other_msg (XtzToToken param))) = Some (new_state, new_acts) ->
+    prev_state<| tokenPool := prev_state.(tokenPool) - tokens_bought |>
+              <| xtzPool := prev_state.(xtzPool) + Z.to_N ctx.(ctx_amount) |> = new_state.
+Proof.
+  intros * receive_some.
+  receive_simpl.
+  now math_convert.
+Qed.
 
-  
-  general
-    freezebaker = true -> cannot be changed
-    constants are constant
-    only set_manager can change manager
-    lqt address set -> cannot be changed
-    updating = true -> all msg's other that update_token_pool_internal will fail
-    
-    if msg <> remove_lqt then worth of contract must not decrease
-    after update token balance will be in sync
-    if no token transfers happen then token balance will always be in sync
-    xtzPool always equals contract balance if deploy amount = 0
-    lqt token pool always equal actual total supply
-    all transfer actions produced are valid
-    all lqt mint_or_burn actions produced are valid
-    token_to_token should result in same state as token_to_xtz and xtz_to_token
-    remove_liquidity should be inverse of add_liquidity
-    tokenPool = 0 <-> xtzPool = 0 <-> lqtTotal = 0 ?
-    xtzPool = 0 \/ lqtTotal = 0 -> contract useless ?
-    Prove order of new_acts not important
-*)
+Lemma xtz_to_token_correct : forall prev_state new_state chain ctx new_acts param,
+  receive chain ctx prev_state (Some (FA2Token.other_msg (XtzToToken param))) = Some (new_state, new_acts) ->
+    new_state.(tokenPool) = prev_state.(tokenPool) -  (((Z.to_N ctx.(ctx_amount)) * 997 * prev_state.(tokenPool)) /
+                          (prev_state.(xtzPool) * 1000 + ((Z.to_N ctx.(ctx_amount)) * 997)) ) /\
+    new_state.(xtzPool) = prev_state.(xtzPool) + Z.to_N ctx.(ctx_amount).
+Proof.
+  intros * receive_some.
+  apply xtz_to_token_state_eq in receive_some.
+  now subst.
+Qed.
+
+(* xtz_to_token should produce one action
+    1: a call action to token contract transferring <tokens_bought> from this contract to <tokens_to>
+ *)
+Lemma xtz_to_token_new_acts_correct : forall chain ctx prev_state new_state new_acts param,
+  let tokens_bought := ((Z.to_N ctx.(ctx_amount)) * 997 * prev_state.(tokenPool)) /
+                          (prev_state.(xtzPool) * 1000 + ((Z.to_N ctx.(ctx_amount)) * 997)) in
+  receive chain ctx prev_state (Some (FA2Token.other_msg (XtzToToken param))) = Some (new_state, new_acts) ->
+    new_acts =
+    [
+      (act_call prev_state.(tokenAddress) 0%Z
+        (serialize (FA2Token.msg_transfer
+        [build_transfer ctx.(ctx_contract_address) param.(tokens_to) prev_state.(tokenId) tokens_bought None])))
+    ].
+Proof.
+  intros * receive_some.
+  receive_simpl.
+  now math_convert.
+Qed.
+
+(* If the requirements are met then then receive on xtz_to_token msg must succeed and
+    if receive on xtz_to_token msg succeeds then requirements must hold *)
+Lemma xtz_to_token_is_some : forall prev_state chain ctx param,
+  let tokens_bought := ((Z.to_N ctx.(ctx_amount)) * 997 * prev_state.(tokenPool)) /
+                          (prev_state.(xtzPool) * 1000 + ((Z.to_N ctx.(ctx_amount)) * 997)) in
+  prev_state.(selfIsUpdatingTokenPool) = false /\
+  (current_slot chain < param.(xtt_deadline))%nat /\
+  (prev_state.(xtzPool) <> 0 \/ (0 < ctx.(ctx_amount))%Z) /\
+  param.(minTokensBought) <= tokens_bought /\
+  tokens_bought <= prev_state.(tokenPool)
+  <->
+  exists new_state new_acts, receive chain ctx prev_state (Some (FA2Token.other_msg (XtzToToken param))) = Some (new_state, new_acts).
+Proof.
+  split.
+  - intros (not_updating & deadline_not_hit & not_zero &
+            enough_tokens_bought & tokens_bought_le_total).
+    unfold receive.
+    cbn.
+    destruct_match eqn:updating_check.
+    destruct_match eqn:deadline_check.
+    destruct_match eqn:xtz_div_check; math_convert; try easy.
+    destruct_match eqn:min_tokens_check.
+    destruct_match eqn:token_pool_check; math_convert; try easy.
+    + now apply N.ltb_ge in enough_tokens_bought.
+    + apply leb_correct_conv in deadline_not_hit.
+      now rewrite deadline_not_hit in deadline_check.
+    + now rewrite not_updating in updating_check.
+  - intros (new_state & new_acts & receive_some).
+    receive_simpl.
+    math_convert.
+    rename H0 into deadline_not_hit.
+    rename H2 into enough_tokens_bought.
+    apply leb_complete_conv in deadline_not_hit.
+    apply N.ltb_ge in enough_tokens_bought.
+    now repeat split.
+Qed.
+
+
 
 (* ---------------------------------------------------------------------- *)
 (* token to xtz correct                                                   *)
 (* ---------------------------------------------------------------------- *)
 
+(* token_to_xtz only changes tokenPool and xtzPool in state *)
+Lemma token_to_xtz_state_eq : forall prev_state new_state chain ctx new_acts param,
+  let xtz_bought := (param.(tokensSold) * 997 * prev_state.(xtzPool)) /
+                          (prev_state.(tokenPool) * 1000 + (param.(tokensSold) * 997)) in
+  receive chain ctx prev_state (Some (FA2Token.other_msg (TokenToXtz param))) = Some (new_state, new_acts) ->
+    prev_state<| tokenPool := prev_state.(tokenPool) + param.(tokensSold) |>
+              <| xtzPool := prev_state.(xtzPool) - xtz_bought |> = new_state.
+Proof.
+  intros * receive_some.
+  receive_simpl.
+  now math_convert.
+Qed.
+
+Lemma token_to_xtz_correct : forall prev_state new_state chain ctx new_acts param,
+  receive chain ctx prev_state (Some (FA2Token.other_msg (TokenToXtz param))) = Some (new_state, new_acts) ->
+    new_state.(tokenPool) = prev_state.(tokenPool) + param.(tokensSold) /\
+    new_state.(xtzPool) = prev_state.(xtzPool) - ((param.(tokensSold) * 997 * prev_state.(xtzPool)) /
+                          (prev_state.(tokenPool) * 1000 + (param.(tokensSold) * 997))).
+Proof.
+  intros * receive_some.
+  apply token_to_xtz_state_eq in receive_some.
+  now subst.
+Qed.
+
+(* token_to_xtz should produce two actions
+    1: a call action to token contract transferring <tokens_sold> from <sender> to this contract
+    2: a transfer action transferring <xtz_bought> from this contract to <xtz_to>
+ *)
+Lemma token_to_xtz_new_acts_correct : forall chain ctx prev_state new_state new_acts param,
+  let xtz_bought := (param.(tokensSold) * 997 * prev_state.(xtzPool)) /
+                          (prev_state.(tokenPool) * 1000 + (param.(tokensSold) * 997)) in
+  receive chain ctx prev_state (Some (FA2Token.other_msg (TokenToXtz param))) = Some (new_state, new_acts) ->
+    new_acts =
+    [
+      (act_call prev_state.(tokenAddress) 0%Z
+        (serialize (FA2Token.msg_transfer
+        [build_transfer ctx.(ctx_from) ctx.(ctx_contract_address) prev_state.(tokenId) param.(tokensSold) None])));
+      (act_transfer param.(xtz_to) (Z.of_N xtz_bought))
+    ].
+Proof.
+  intros * receive_some.
+  receive_simpl.
+  math_convert.
+  rename H5 into xtz_act.
+  unfold xtz_transfer in xtz_act.
+  destruct_match in xtz_act; try congruence.
+  now inversion_clear xtz_act.
+Qed.
+
+(* If the requirements are met then then receive on token_to_xtz msg must succeed and
+    if receive on token_to_xtz msg succeeds then requirements must hold *)
+Lemma token_to_xtz_is_some : forall prev_state chain ctx param,
+  let xtz_bought := (param.(tokensSold) * 997 * prev_state.(xtzPool)) /
+                          (prev_state.(tokenPool) * 1000 + (param.(tokensSold) * 997)) in
+  prev_state.(selfIsUpdatingTokenPool) = false /\
+  (current_slot chain < param.(ttx_deadline))%nat /\
+  (ctx.(ctx_amount) <= 0)%Z /\
+  param.(minXtzBought) <= xtz_bought /\
+  (prev_state.(tokenPool) <> 0 \/ param.(tokensSold) <> 0) /\
+  address_is_contract param.(xtz_to) = false /\
+  xtz_bought <= prev_state.(xtzPool)
+  <->
+  exists new_state new_acts, receive chain ctx prev_state (Some (FA2Token.other_msg (TokenToXtz param))) = Some (new_state, new_acts).
+Proof.
+  split.
+  - intros (not_updating & deadline_not_hit & ctx_amount_zero &
+            enough_xtz_bought & not_zero & to_not_contract &
+            xtz_bought_le_total).
+    unfold receive.
+    cbn.
+    destruct_match eqn:updating_check.
+    destruct_match eqn:deadline_check.
+    destruct_match eqn:amount_check.
+    destruct_match eqn:div_check; math_convert; try easy.
+    destruct_match eqn:min_xtz_check.
+    destruct_match eqn:xtz_pool_check; math_convert; try easy.
+    destruct_match eqn:transfer_act.
+    + eauto.
+    + unfold xtz_transfer in transfer_act.
+      now rewrite to_not_contract in transfer_act.
+    + now apply N.ltb_ge in enough_xtz_bought.
+    + now apply Z.ltb_ge in ctx_amount_zero.
+    + apply leb_correct_conv in deadline_not_hit.
+      now rewrite deadline_not_hit in deadline_check.
+    + now rewrite not_updating in updating_check.
+  - intros (new_state & new_acts & receive_some).
+    receive_simpl.
+    math_convert.
+    rename H0 into deadline_not_hit.
+    rename H1 into ctx_amount_zero.
+    rename H3 into enough_xtz_bought.
+    rename H5 into transfer_act.
+    apply leb_complete_conv in deadline_not_hit.
+    apply N.ltb_ge in enough_xtz_bought.
+    apply Z.ltb_ge in ctx_amount_zero.
+    unfold xtz_transfer in transfer_act.
+    destruct_match eqn:to_not_contract in transfer_act;
+      try congruence.
+    now repeat split.
+Qed.
+
 (* ---------------------------------------------------------------------- *)
 (* token to token correct                                                 *)
 (* ---------------------------------------------------------------------- *)
 
+(* token_to_token only changes tokenPool and xtzPool in state *)
+Lemma token_to_token_state_eq : forall prev_state new_state chain ctx new_acts param,
+  let xtz_bought := (param.(tokensSold_) * 997 * prev_state.(xtzPool)) /
+                          (prev_state.(tokenPool) * 1000 + (param.(tokensSold_) * 997)) in
+  receive chain ctx prev_state (Some (FA2Token.other_msg (TokenToToken param))) = Some (new_state, new_acts) ->
+    prev_state<| tokenPool := prev_state.(tokenPool) + param.(tokensSold_) |>
+              <| xtzPool := prev_state.(xtzPool) - xtz_bought |> = new_state.
+Proof.
+  intros * receive_some.
+  receive_simpl.
+  now math_convert.
+Qed.
 
+Lemma token_to_token_correct : forall prev_state new_state chain ctx new_acts param,
+  receive chain ctx prev_state (Some (FA2Token.other_msg (TokenToToken param))) = Some (new_state, new_acts) ->
+    new_state.(tokenPool) = prev_state.(tokenPool) + param.(tokensSold_) /\
+    new_state.(xtzPool) = prev_state.(xtzPool) - ((param.(tokensSold_) * 997 * prev_state.(xtzPool)) /
+                          (prev_state.(tokenPool) * 1000 + (param.(tokensSold_) * 997))).
+Proof.
+  intros * receive_some.
+  apply token_to_token_state_eq in receive_some.
+  now subst.
+Qed.
 
+(* token_to_token should produce two actions
+    1: a call action to token contract transferring <tokens_sold> from <sender> to this contract
+    2: a call action to <outputDexterContract> xtz_to_token entrypoint with <xtz_bought> amount attached
+ *)
+Lemma token_to_token_new_acts_correct : forall chain ctx prev_state new_state new_acts param,
+  let xtz_bought := (param.(tokensSold_) * 997 * prev_state.(xtzPool)) /
+                          (prev_state.(tokenPool) * 1000 + (param.(tokensSold_) * 997)) in
+  receive chain ctx prev_state (Some (FA2Token.other_msg (TokenToToken param))) = Some (new_state, new_acts) ->
+    new_acts =
+    [
+      (act_call prev_state.(tokenAddress) 0%Z
+        (serialize (FA2Token.msg_transfer
+        [build_transfer ctx.(ctx_from) ctx.(ctx_contract_address) prev_state.(tokenId) param.(tokensSold_) None])));
+      (act_call param.(outputDexterContract) (Z.of_N xtz_bought)
+        (serialize ((FA2Token.other_msg (XtzToToken
+        {| tokens_to := param.(to_);
+           minTokensBought := param.(minTokensBought_);
+           xtt_deadline := param.(ttt_deadline) |})))))
+    ].
+Proof.
+  intros * receive_some.
+  receive_simpl.
+  now math_convert.
+Qed.
 
+(* If the requirements are met then then receive on token_to_token msg must succeed and
+    if receive on token_to_token msg succeeds then requirements must hold *)
+Lemma token_to_token_is_some : forall prev_state chain ctx param,
+  let xtz_bought := (param.(tokensSold_) * 997 * prev_state.(xtzPool)) /
+                          (prev_state.(tokenPool) * 1000 + (param.(tokensSold_) * 997)) in
+  prev_state.(selfIsUpdatingTokenPool) = false /\
+  (current_slot chain < param.(ttt_deadline))%nat /\
+  (ctx.(ctx_amount) <= 0)%Z /\
+  xtz_bought <= prev_state.(xtzPool) /\
+  (prev_state.(tokenPool) <> 0 \/ param.(tokensSold_) <> 0)
+  <->
+  exists new_state new_acts, receive chain ctx prev_state (Some (FA2Token.other_msg (TokenToToken param))) = Some (new_state, new_acts).
+Proof.
+  split.
+  - intros (not_updating & deadline_not_hit & ctx_amount_zero &
+            xtz_bought_le_total & not_zero).
+    unfold receive.
+    cbn.
+    destruct_match eqn:updating_check.
+    destruct_match eqn:amount_check.
+    destruct_match eqn:deadline_check.
+    destruct_match eqn:div_check; math_convert; try easy.
+    destruct_match eqn:xtz_pool_check; math_convert; try easy.
+    + apply leb_correct_conv in deadline_not_hit.
+      now rewrite deadline_not_hit in deadline_check.
+    + now apply Z.ltb_ge in ctx_amount_zero.
+    + now rewrite not_updating in updating_check.
+  - intros (new_state & new_acts & receive_some).
+    receive_simpl.
+    math_convert.
+    rename H1 into deadline_not_hit.
+    rename H0 into ctx_amount_zero.
+    apply leb_complete_conv in deadline_not_hit.
+    apply Z.ltb_ge in ctx_amount_zero.
+    now repeat split.
+Qed.
+
+(* ---------------------------------------------------------------------- *)
+(* init correct                                                           *)
+(* ---------------------------------------------------------------------- *)
+
+Lemma init_state_eq : forall chain ctx setup state,
+  init chain ctx setup = Some state ->
+    state = {|
+      tokenPool := 0;
+      xtzPool := 0;
+      lqtTotal := setup.(lqtTotal_);
+      selfIsUpdatingTokenPool := false;
+      freezeBaker := false;
+      manager := setup.(manager_);
+      tokenAddress := setup.(tokenAddress_);
+      lqtAddress := setup.(nullAddress_);
+      nullAddress := setup.(nullAddress_);
+      tokenId := setup.(tokenId_)
+    |}.
+Proof.
+  intros * init_some.
+  now inversion init_some.
+Qed.
+
+Lemma init_correct : forall chain ctx setup state,
+  init chain ctx setup = Some state ->
+    tokenPool state = 0 /\
+    xtzPool state = 0 /\
+    lqtTotal state = setup.(lqtTotal_) /\
+    selfIsUpdatingTokenPool state = false /\
+    freezeBaker state = false /\
+    manager state = setup.(manager_) /\
+    tokenAddress state = setup.(tokenAddress_) /\
+    lqtAddress state = setup.(nullAddress_) /\
+    nullAddress state = setup.(nullAddress_) /\
+    tokenId state = setup.(tokenId_).
+Proof.
+  intros * init_some.
+  apply init_state_eq in init_some.
+  now subst.
+Qed.
+
+(* initialization should always succeed *)
+Lemma init_is_some : forall chain ctx setup,
+  exists state, init chain ctx setup = state.
+Proof.
+  intros.
+  eauto.
+Qed.
 
 End Theories.
 End Dexter.
