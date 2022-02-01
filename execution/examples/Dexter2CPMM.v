@@ -3071,5 +3071,4 @@ Qed.
       now rewrite <- mintedOrBurnedTokens_call_eq_tx.
   Qed.
 
-
 End Theories.
