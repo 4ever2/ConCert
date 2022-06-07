@@ -194,6 +194,12 @@ Section WccdToken.
     | None => None
     end.
 
+  Definition wccd_init
+             (chain : Chain)
+             (ctx : ContractCallContext)
+             (setup : unit) : option State :=
+    Some AddressMap.empty.
+
 End WccdToken.
 
 (** * wccd complies with CIS1 *)
