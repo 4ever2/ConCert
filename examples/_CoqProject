@@ -75,6 +75,7 @@ iTokenBuggy/iTokenBuggyTests.v
 cis1/CIS1Spec.v
 cis1/CIS1Utils.v
 cis1/Cis1wccd.v
+cis1/Cis1RustExtract.v
 
 -Q stackInterpreter ConCert.Examples.StackInterpreter
 stackInterpreter/StackInterpreter.v
