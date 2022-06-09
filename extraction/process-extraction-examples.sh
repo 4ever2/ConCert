@@ -50,7 +50,7 @@ do
 done
 
 echo "Processing Rust Concordium extraction"
-concordium_contracts="counter interp escrow"
+concordium_contracts="counter interp escrow eip20"
 
 CONCORDIUM_SUFFIX=extracted/src/lib.rs
 CONCORDIUM_TESTS=extracted/src/tests.rs

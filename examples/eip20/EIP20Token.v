@@ -19,7 +19,7 @@ From ConCert.Utils Require Import RecordUpdate.
 
 (** * Contract types *)
 Section EIP20Token.
-  Context {BaseTypes : ChainBase}.
+  Context `{Base : ChainBase}.
   Set Nonrecursive Elimination Schemes.
 
   Definition TokenValue := N.
@@ -91,6 +91,12 @@ Section EIP20Token.
          let new_balances := increment_balance new_balances to amount in
          Some (state<|balances := new_balances|>).
   
+  Definition update_allowances state owner delegate amount old_allowance := {|
+      total_supply := state.(total_supply);
+      balances := state.(balances);
+      allowances := AddressMap.add owner (AddressMap.add delegate amount old_allowance) state.(allowances)
+    |}.
+
   (** ** transfer_from *)
   (** The delegate tries to transfer [amount] tokens from [from] to [to].
       Succeeds if [from] has indeed allowed the delegate to spend at least [amount] tokens on its behalf. *)
@@ -104,10 +110,19 @@ Section EIP20Token.
   let from_balance := with_default 0 (AddressMap.find from state.(balances)) in
   if (delegate_allowance <? amount) || (from_balance <? amount)
   then None
+  else let new_allowance := (delegate_allowance - amount) in
+       let new_balances := AddressMap.add from (from_balance - amount) state.(balances) in
+       let new_balances := increment_balance new_balances to amount in
+       Some (update_allowances (state<|balances := new_balances|>) from delegate new_allowance from_allowances_map).
+(*   do from_allowances_map <- AddressMap.find from state.(allowances) ;
+  do delegate_allowance <- AddressMap.find delegate from_allowances_map ;
+  let from_balance := with_default 0 (AddressMap.find from state.(balances)) in
+  if (delegate_allowance <? amount) || (from_balance <? amount)
+  then None
   else let new_allowances := AddressMap.add delegate (delegate_allowance - amount) from_allowances_map in
        let new_balances := AddressMap.add from (from_balance - amount) state.(balances) in
        let new_balances := increment_balance new_balances to amount in
-       Some (state<|balances := new_balances|><|allowances ::= AddressMap.add from new_allowances|>).
+       Some (state<|balances := new_balances|><|allowances ::= AddressMap.add from new_allowances|>). *)
 
   (** ** approve *)
   (** The caller approves the delegate to transfer up to [amount] tokens on behalf of the caller *)
@@ -117,10 +132,21 @@ Section EIP20Token.
        (state : State) : option State :=
     match AddressMap.find caller state.(allowances) with
     | Some caller_allowances =>
-      Some (state<|allowances ::= AddressMap.add caller (AddressMap.add delegate amount caller_allowances) |>)
+      Some (update_allowances state caller delegate amount caller_allowances)
     | None =>
-      Some (state<|allowances ::= AddressMap.add caller (AddressMap.add delegate amount AddressMap.empty) |>)
+      Some (update_allowances state caller delegate amount AddressMap.empty)
     end.
+(*     let set_allowances caller_allowances := {|
+        total_supply := state.(total_supply);
+        balances := state.(balances);
+        allowances := (AddressMap.add caller (AddressMap.add delegate amount caller_allowances) state.(allowances))
+      |} in
+    match AddressMap.find caller state.(allowances) with
+    | Some caller_allowances =>
+      Some (set_allowances caller_allowances)
+    | None =>
+      Some (set_allowances AddressMap.empty)
+    end. *)
 
   (** ** receive *)
   (** Contract entrypoint function *)
