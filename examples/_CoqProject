@@ -14,6 +14,7 @@ eip20/EIP20TokenPrinters.v
 eip20/EIP20TokenTests.v
 eip20/EIP20LiquidityExtraction.v
 eip20/EIP20CameLIGOExtraction.v
+eip20/EIP20RustExtraction.v
 
 -Q bat ConCert.Examples.BAT
 bat/BATCommon.v
