@@ -1,16 +1,16 @@
 {
     "problemMatcher": [
         {
-            "owner": "coq-problem-matcher",
+            "owner": "coq",
             "pattern": [
                 {
-                    "regexp": "^(?:-\\s+)?File \"([^ \"]+)\", line (\\d+), characters (\\d+-\\d+):",
+                    "regexp": "^File \"([^\"].*)\", line (\\d+), characters (\\d+)-(\\d+):$",
                     "file": 1,
                     "line": 2,
                     "column": 3
                 },
                 {
-                    "regexp": "^(?:-\\s+)?(Warning|Error):\\s*(.*?)(?:\\s*\\[(.*)\\])?$",
+                    "regexp": "^(Error|Warning): (.*)$",
                     "severity": 1,
                     "message": 2,
                     "code": 3
