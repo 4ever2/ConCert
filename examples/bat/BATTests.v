@@ -19,7 +19,7 @@ Import ListNotations.
 Definition fundingStart_ := 0.
 Definition fundingEnd_ := 5.
 Definition tokenCap_ := 101%N.
-Definition tokenMin_ := 75%N.
+Definition tokenMin_ := 75%N
 
 Definition bat_setup := BATCommon.build_setup initSupply_
                                               ethFund
