@@ -59,7 +59,7 @@ Section EIP20Token.
     Global Instance state_serializable : Serializable State :=
       Derive Serializable State_rect <build_state>.
 
-  End Serialization.
+  End Serialization
   (* end hide *)
 
 (** * Contract functions *)
