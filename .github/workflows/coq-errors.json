@@ -10,7 +10,7 @@
                     "column": 3
                 },
                 {
-                    "regexp": "^(Error|Warning): (.*) \\[(.*)\\]$",
+                    "regexp": "^(Error|Warning): (.*)(\\[(.*)\\])?$",
                     "severity": 1,
                     "message": 2,
                     "code": 3
