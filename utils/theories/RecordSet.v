@@ -16,42 +16,97 @@ Class SetterFromGetter {A B} (a : A -> B) :=
 Definition aRelevant (na : name) : aname :=
   {| binder_name := na; binder_relevance := Relevant |}.
 
-Definition make_setters (T : Type) : TemplateMonad unit :=
+#[universes(polymorphic=yes)]
+Definition get_inductive (T : Type) : TemplateMonad inductive :=
   Tast <- tmQuote T;;
-  ind <- match Tast with
-        | tInd ind _ => ret ind
-        | tApp (tInd ind _) _ => ret ind
-        | _ => tmFail "Cannot extract inductive, are you sure you passed a type?"
-        end;;
-  mib <- tmQuoteInductive (inductive_mind ind);;
+  match Tast with
+  | tInd ind _ => ret ind
+  | tApp (tInd ind _) _ => ret ind
+  | _ => tmFail "Cannot extract inductive, are you sure you passed a type?"
+  end.
+
+#[universes(polymorphic=yes)]
+Definition get_mib (ind : inductive) : TemplateMonad mutual_inductive_body :=
+  tmQuoteInductive (inductive_mind ind).
+
+Definition is_record (mib : mutual_inductive_body) : TemplateMonad unit :=
   match ind_finite mib with
   | BiFinite => ret tt
   | _ => tmFail "Unexpected finite kind; are you sure you are creating setters for a record?"
-  end;;
-  oib <- match nth_error (ind_bodies mib) (inductive_ind ind) with
-         | Some oib => ret oib
-         | None => tmFail "Could not find inductive in mutual inductive?"
-         end;;
-  '(ctor, ar) <- match ind_ctors oib with
+  end.
+
+Definition get_nth_oib (mib : mutual_inductive_body) (n : nat) : TemplateMonad one_inductive_body :=
+  match nth_error (ind_bodies mib) n with
+  | Some oib => ret oib
+  | None => tmFail "Could not find inductive in mutual inductive"
+  end.
+
+Definition get_oib (mib : mutual_inductive_body) (ind : inductive) : TemplateMonad one_inductive_body :=
+  get_nth_oib mib (inductive_ind ind).
+
+Definition get_constructors (oib : one_inductive_body) : list constructor_body :=
+  ind_ctors oib.
+
+Fixpoint find_getter_kns (t : term) (ind : inductive) : TemplateMonad (list kername) :=
+  match t with
+  | tProd na A B =>
+    kn <- match binder_name na with
+          | nNamed id => ret ((inductive_mind ind).1, id)
+          | nAnon => tmFail "Records with anonymous fields are not supported"
+          end;;
+    kns <- find_getter_kns B ind;;
+    ret (kn :: kns)
+  | tLetIn na a A B => find_getter_kns B ind
+  | _ => ret []
+  end.
+
+Definition make_setter_body (A : term) (ind : inductive) getter_kn getter_kns :=
+  tLambda
+    (aRelevant (nNamed "f"))
+    (tProd (aRelevant nAnon) A A)
+    (tLambda
+        (aRelevant (nNamed "r"))
+        (tInd ind [])
+        (tApp
+          (tConstruct ind 0 [])
+          (mapi
+              (fun i (gkn : kername) =>
+                let get := tApp (tConst gkn []) [tRel 0] in
+                if eq_kername gkn getter_kn then
+                  tApp (tRel 1) [get]
+                else
+                  get)
+              getter_kns))).
+
+Definition instance_exists (T : Type) : TemplateMonad unit :=
+  inst <- tmInferInstance None T;;
+  match inst with
+  | my_Some _ _ => ret tt
+  | _ => tmFail "Instance already exist"
+  end.
+
+Definition qualid_const_kername (q : qualid) : TemplateMonad kername :=
+  glob_ref <- tmLocate1 q;;
+  match glob_ref with
+  | ConstRef kn => ret kn
+  | _ => tmFail "Unexpected global_reference after unquoting"
+  end.
+
+Definition register_instance (q : qualid) : TemplateMonad unit :=
+  tmLocate1 q >>= tmExistingInstance.
+
+Definition make_setters (T : Type) : TemplateMonad unit :=
+  ind <- get_inductive T;;
+  mib <- get_mib ind;;
+  _ <- is_record mib;;
+  oib <- get_oib mib ind;;
+  let ctors := get_constructors oib in
+  '(ctor, ar) <- match ctors with
                  | [c] => ret (c.(cstr_type), c.(cstr_arity))
                  | _ => tmFail "Type should have exactly one constructor"
                  end;;
 
-  let fix find_getter_kns (t : term) : TemplateMonad (list kername) :=
-      match t with
-      | tProd na A B =>
-        kn <-
-        match binder_name na with
-        | nNamed id => ret ((inductive_mind ind).1, id)
-        | nAnon => tmFail "Records with anonymous fields are not supported"
-        end;;
-        kns <- find_getter_kns B;;
-        ret (kn :: kns)
-      | tLetIn na a A B => find_getter_kns B
-      | _ => ret []
-      end in
-
-  getter_kns <- find_getter_kns ctor;;
+  getter_kns <- find_getter_kns ctor ind;;
 
   let fix create_setters (t : term) (idx : nat) : TemplateMonad unit :=
       match t with
@@ -61,33 +116,12 @@ Definition make_setters (T : Type) : TemplateMonad unit :=
           (* Create setter *)
           let getter_kn := ((inductive_mind ind).1, id) in
 
-          let body :=
-              tLambda
-                (aRelevant (nNamed "f"))
-                (tProd (aRelevant nAnon) A A)
-                (tLambda
-                   (aRelevant (nNamed "r"))
-                   (tInd ind [])
-                   (tApp
-                      (tConstruct ind 0 [])
-                      (mapi
-                         (fun i (gkn : kername) =>
-                            let get := tApp (tConst gkn []) [tRel 0] in
-                            if eq_kername gkn getter_kn then
-                              tApp (tRel 1) [get]
-                            else
-                              get)
-                         getter_kns))) in
-
+          let body := make_setter_body A ind getter_kn getter_kns in
           let setter_id := "set_" ^ ind_name oib ^ "_" ^ id in
           tmMkDefinition setter_id body;;
 
           (* Create SetterFromGetter instance *)
-          setter_gr <- tmLocate1 setter_id;;
-          setter_kn <- match setter_gr with
-          | ConstRef kn => ret kn
-          | _ => tmFail "Unexpected global_reference after unquoting"
-          end;;
+          setter_kn <- qualid_const_kername setter_id;;
 
           (* I could not find a way to specify the type of an unquoted constant,
              so we always unquote as a cast *)
@@ -101,8 +135,8 @@ Definition make_setters (T : Type) : TemplateMonad unit :=
 
           let setter_from_getter_id := "setter_from_getter_" ^ ind_name oib ^ "_" ^ id in
           tmMkDefinition setter_from_getter_id body;;
-
-          tmLocate1 setter_from_getter_id >>= tmExistingInstance
+          
+          register_instance setter_from_getter_id
         | nAnon => ret tt
         end;;
         create_setters B (S idx)
@@ -110,6 +144,7 @@ Definition make_setters (T : Type) : TemplateMonad unit :=
       | _ => ret tt
       end in
   create_setters ctor 0.
+
 
 Module RecordSetNotations.
   Declare Scope record_set.

@@ -1,0 +1,388 @@
+test = 
+let pairs := (_true, (_false, tt)) in
+{|
+  serialize :=
+	fun b : Bool =>
+    match b with
+    | _true b0 =>
+        @serialize (nat × SerializedValue)
+          (@product_serializable nat nat_serializable SerializedValue
+             ser_value_equivalence)
+          (0,
+           @serialize (bool × SerializedValue)
+             (@product_serializable bool bool_serializable SerializedValue
+                ser_value_equivalence)
+             (b0, @serialize unit unit_serializable tt))
+    | _false b0 =>
+        @serialize (nat × SerializedValue)
+          (@product_serializable nat nat_serializable SerializedValue
+             ser_value_equivalence)
+          (1,
+           @serialize (bool × SerializedValue)
+             (@product_serializable bool bool_serializable SerializedValue
+                ser_value_equivalence)
+             (b0, @serialize unit unit_serializable tt))
+    end;
+  deserialize :=
+    fun sv : SerializedValue =>
+    match
+      @deserialize (nat × SerializedValue)
+        (@product_serializable nat nat_serializable SerializedValue
+           ser_value_equivalence) sv
+    with
+    | Some val =>
+        let (tag, sv0) := val in
+        match tag with
+        | 0 =>
+            match
+              @deserialize (bool × SerializedValue)
+                (@product_serializable bool bool_serializable SerializedValue
+                   ser_value_equivalence) sv0
+            with
+            | Some val0 =>
+                let (a, sv1) := val0 in
+                match @deserialize unit unit_serializable sv1 with
+                | Some _ => @Some Bool (_true a)
+                | None => @None Bool
+                end
+            | None => @None Bool
+            end
+        | S tag0 =>
+            match tag0 with
+            | 0 =>
+                match
+                  @deserialize (bool × SerializedValue)
+                    (@product_serializable bool bool_serializable
+                       SerializedValue ser_value_equivalence) sv0
+                with
+                | Some val0 =>
+                    let (a, sv1) := val0 in
+                    match @deserialize unit unit_serializable sv1 with
+                    | Some _ => @Some Bool (_false a)
+                    | None => @None Bool
+                    end
+                | None => @None Bool
+                end
+            | S _ => @None Bool
+            end
+        end
+    | None => @None Bool
+    end;
+  deserialize_serialize :=
+    fun x : Bool =>
+    match
+      x as b
+      return
+        (match
+           @deserialize (nat × SerializedValue)
+             (@product_serializable nat nat_serializable SerializedValue
+                ser_value_equivalence)
+             match b with
+             | _true b0 =>
+                 @serialize (nat × SerializedValue)
+                   (@product_serializable nat nat_serializable
+                      SerializedValue ser_value_equivalence)
+                   (0,
+                    @serialize (bool × SerializedValue)
+                      (@product_serializable bool bool_serializable
+                         SerializedValue ser_value_equivalence)
+                      (b0, @serialize unit unit_serializable tt))
+             | _false b0 =>
+                 @serialize (nat × SerializedValue)
+                   (@product_serializable nat nat_serializable
+                      SerializedValue ser_value_equivalence)
+                   (1,
+                    @serialize (bool × SerializedValue)
+                      (@product_serializable bool bool_serializable
+                         SerializedValue ser_value_equivalence)
+                      (b0, @serialize unit unit_serializable tt))
+             end
+         with
+         | Some val =>
+             let (tag, sv) := val in
+             match tag with
+             | 0 =>
+                 match
+                   @deserialize (bool × SerializedValue)
+                     (@product_serializable bool bool_serializable
+                        SerializedValue ser_value_equivalence) sv
+                 with
+                 | Some val0 =>
+                     let (a, sv0) := val0 in
+                     match @deserialize unit unit_serializable sv0 with
+                     | Some _ => @Some Bool (_true a)
+                     | None => @None Bool
+                     end
+                 | None => @None Bool
+                 end
+             | S tag0 =>
+                 match tag0 with
+                 | 0 =>
+                     match
+                       @deserialize (bool × SerializedValue)
+                         (@product_serializable bool bool_serializable
+                            SerializedValue ser_value_equivalence) sv
+                     with
+                     | Some val0 =>
+                         let (a, sv0) := val0 in
+                         match @deserialize unit unit_serializable sv0 with
+                         | Some _ => @Some Bool (_false a)
+                         | None => @None Bool
+                         end
+                     | None => @None Bool
+                     end
+                 | S _ => @None Bool
+                 end
+             end
+         | None => @None Bool
+         end = @Some Bool b)
+    with
+    | _true b =>
+        (fun b0 : bool =>
+         @eq_ind_r (option (nat × SerializedValue))
+           (@Some (nat × SerializedValue)
+              (0,
+               @serialize (bool × SerializedValue)
+                 (@product_serializable bool bool_serializable
+                    SerializedValue ser_value_equivalence)
+                 (b0, @serialize unit unit_serializable tt)))
+           (fun o : option (nat × SerializedValue) =>
+            match o with
+            | Some val =>
+                let (tag, sv) := val in
+                match tag with
+                | 0 =>
+                    match
+                      @deserialize (bool × SerializedValue)
+                        (@product_serializable bool bool_serializable
+                           SerializedValue ser_value_equivalence) sv
+                    with
+                    | Some val0 =>
+                        let (a, sv0) := val0 in
+                        match @deserialize unit unit_serializable sv0 with
+                        | Some _ => @Some Bool (_true a)
+                        | None => @None Bool
+                        end
+                    | None => @None Bool
+                    end
+                | S tag0 =>
+                    match tag0 with
+                    | 0 =>
+                        match
+                          @deserialize (bool × SerializedValue)
+                            (@product_serializable bool bool_serializable
+                               SerializedValue ser_value_equivalence) sv
+                        with
+                        | Some val0 =>
+                            let (a, sv0) := val0 in
+                            match
+                              @deserialize unit unit_serializable sv0
+                            with
+                            | Some _ => @Some Bool (_false a)
+                            | None => @None Bool
+                            end
+                        | None => @None Bool
+                        end
+                    | S _ => @None Bool
+                    end
+                end
+            | None => @None Bool
+            end = @Some Bool (_true b0))
+           (@eq_refl (option Bool) (@Some Bool (_true b0)))
+           (@deserialize (nat × SerializedValue)
+              (@product_serializable nat nat_serializable SerializedValue
+                 ser_value_equivalence)
+              (@serialize (nat × SerializedValue)
+                 (@product_serializable nat nat_serializable SerializedValue
+                    ser_value_equivalence)
+                 (0,
+                  @serialize (bool × SerializedValue)
+                    (@product_serializable bool bool_serializable
+                       SerializedValue ser_value_equivalence)
+                    (b0, @serialize unit unit_serializable tt))))
+           (@deserialize_serialize (nat × SerializedValue)
+              (@product_serializable nat nat_serializable SerializedValue
+                 ser_value_equivalence)
+              (0,
+               @serialize (bool × SerializedValue)
+                 (@product_serializable bool bool_serializable
+                    SerializedValue ser_value_equivalence)
+                 (b0, @serialize unit unit_serializable tt)))
+         :
+         match
+           @deserialize (nat × SerializedValue)
+             (@product_serializable nat nat_serializable SerializedValue
+                ser_value_equivalence)
+             (@serialize (nat × SerializedValue)
+                (@product_serializable nat nat_serializable SerializedValue
+                   ser_value_equivalence)
+                (0,
+                 @serialize (bool × SerializedValue)
+                   (@product_serializable bool bool_serializable
+                      SerializedValue ser_value_equivalence)
+                   (b0, @serialize unit unit_serializable tt)))
+         with
+         | Some val =>
+             let (tag, sv) := val in
+             match tag with
+             | 0 =>
+                 match
+                   @deserialize (bool × SerializedValue)
+                     (@product_serializable bool bool_serializable
+                        SerializedValue ser_value_equivalence) sv
+                 with
+                 | Some val0 =>
+                     let (a, sv0) := val0 in
+                     match @deserialize unit unit_serializable sv0 with
+                     | Some _ => @Some Bool (_true a)
+                     | None => @None Bool
+                     end
+                 | None => @None Bool
+                 end
+             | S tag0 =>
+                 match tag0 with
+                 | 0 =>
+                     match
+                       @deserialize (bool × SerializedValue)
+                         (@product_serializable bool bool_serializable
+                            SerializedValue ser_value_equivalence) sv
+                     with
+                     | Some val0 =>
+                         let (a, sv0) := val0 in
+                         match @deserialize unit unit_serializable sv0 with
+                         | Some _ => @Some Bool (_false a)
+                         | None => @None Bool
+                         end
+                     | None => @None Bool
+                     end
+                 | S _ => @None Bool
+                 end
+             end
+         | None => @None Bool
+         end = @Some Bool (_true b0)) b
+    | _false b =>
+        (fun b0 : bool =>
+         @eq_ind_r (option (nat × SerializedValue))
+           (@Some (nat × SerializedValue)
+              (1,
+               @serialize (bool × SerializedValue)
+                 (@product_serializable bool bool_serializable
+                    SerializedValue ser_value_equivalence)
+                 (b0, @serialize unit unit_serializable tt)))
+           (fun o : option (nat × SerializedValue) =>
+            match o with
+            | Some val =>
+                let (tag, sv) := val in
+                match tag with
+                | 0 =>
+                    match
+                      @deserialize (bool × SerializedValue)
+                        (@product_serializable bool bool_serializable
+                           SerializedValue ser_value_equivalence) sv
+                    with
+                    | Some val0 =>
+                        let (a, sv0) := val0 in
+                        match @deserialize unit unit_serializable sv0 with
+                        | Some _ => @Some Bool (_true a)
+                        | None => @None Bool
+                        end
+                    | None => @None Bool
+                    end
+                | S tag0 =>
+                    match tag0 with
+                    | 0 =>
+                        match
+                          @deserialize (bool × SerializedValue)
+                            (@product_serializable bool bool_serializable
+                               SerializedValue ser_value_equivalence) sv
+                        with
+                        | Some val0 =>
+                            let (a, sv0) := val0 in
+                            match
+                              @deserialize unit unit_serializable sv0
+                            with
+                            | Some _ => @Some Bool (_false a)
+                            | None => @None Bool
+                            end
+                        | None => @None Bool
+                        end
+                    | S _ => @None Bool
+                    end
+                end
+            | None => @None Bool
+            end = @Some Bool (_false b0))
+           (@eq_refl (option Bool) (@Some Bool (_false b0)))
+           (@deserialize (nat × SerializedValue)
+              (@product_serializable nat nat_serializable SerializedValue
+                 ser_value_equivalence)
+              (@serialize (nat × SerializedValue)
+                 (@product_serializable nat nat_serializable SerializedValue
+                    ser_value_equivalence)
+                 (1,
+                  @serialize (bool × SerializedValue)
+                    (@product_serializable bool bool_serializable
+                       SerializedValue ser_value_equivalence)
+                    (b0, @serialize unit unit_serializable tt))))
+           (@deserialize_serialize (nat × SerializedValue)
+              (@product_serializable nat nat_serializable SerializedValue
+                 ser_value_equivalence)
+              (1,
+               @serialize (bool × SerializedValue)
+                 (@product_serializable bool bool_serializable
+                    SerializedValue ser_value_equivalence)
+                 (b0, @serialize unit unit_serializable tt)))
+         :
+         match
+           @deserialize (nat × SerializedValue)
+             (@product_serializable nat nat_serializable SerializedValue
+                ser_value_equivalence)
+             (@serialize (nat × SerializedValue)
+                (@product_serializable nat nat_serializable SerializedValue
+                   ser_value_equivalence)
+                (1,
+                 @serialize (bool × SerializedValue)
+                   (@product_serializable bool bool_serializable
+                      SerializedValue ser_value_equivalence)
+                   (b0, @serialize unit unit_serializable tt)))
+         with
+         | Some val =>
+             let (tag, sv) := val in
+             match tag with
+             | 0 =>
+                 match
+                   @deserialize (bool × SerializedValue)
+                     (@product_serializable bool bool_serializable
+                        SerializedValue ser_value_equivalence) sv
+                 with
+                 | Some val0 =>
+                     let (a, sv0) := val0 in
+                     match @deserialize unit unit_serializable sv0 with
+                     | Some _ => @Some Bool (_true a)
+                     | None => @None Bool
+                     end
+                 | None => @None Bool
+                 end
+             | S tag0 =>
+                 match tag0 with
+                 | 0 =>
+                     match
+                       @deserialize (bool × SerializedValue)
+                         (@product_serializable bool bool_serializable
+                            SerializedValue ser_value_equivalence) sv
+                     with
+                     | Some val0 =>
+                         let (a, sv0) := val0 in
+                         match @deserialize unit unit_serializable sv0 with
+                         | Some _ => @Some Bool (_false a)
+                         | None => @None Bool
+                         end
+                     | None => @None Bool
+                     end
+                 | S _ => @None Bool
+                 end
+             end
+         | None => @None Bool
+         end = @Some Bool (_false b0)) b
+    end
+|}
+     : Serializable Bool

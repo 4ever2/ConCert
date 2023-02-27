@@ -1,0 +1,245 @@
+test = 
+let pairs := (_true, (_false, tt)) in
+{|
+  serialize :=
+	fun b : Bool =>
+    match b with
+    | _true b0 n =>
+        serialize (0, serialize (b0, serialize (n, serialize tt)))
+    | _false b0 => serialize (1, serialize (b0, serialize tt))
+    end;
+  deserialize :=
+    fun sv : SerializedValue =>
+    do x <- deserialize sv;
+    (let (tag, sv0) := x in
+     (fun (tag0 : nat) (sv1 : SerializedValue) =>
+      match tag0 with
+      | 0 =>
+          (fun (builder : bool -> nat -> Bool) (sv2 : SerializedValue) =>
+           do x0 <- (deserialize sv2 : option (bool * SerializedValue));
+           (let (a, sv3) := x0 in
+            (fun (builder0 : nat -> Bool) (sv4 : SerializedValue) =>
+             do x1 <- (deserialize sv4 : option (nat * SerializedValue));
+             (let (a0, sv5) := x1 in
+              (fun (value : Bool) (sv6 : SerializedValue) =>
+               do deserialize sv6 : option unit; Some value) 
+                (builder0 a0) sv5)) (builder a) sv3)) _true sv1
+      | S tag1 =>
+          (fun (tag2 : nat) (sv2 : SerializedValue) =>
+           match tag2 with
+           | 0 =>
+               (fun (builder : bool -> Bool) (sv3 : SerializedValue) =>
+                do x0 <- (deserialize sv3 : option (bool * SerializedValue));
+                (let (a, sv4) := x0 in
+                 (fun (value : Bool) (sv5 : SerializedValue) =>
+                  do deserialize sv5 : option unit; Some value) 
+                   (builder a) sv4)) _false sv2
+           | S tag3 => (fun (_ : nat) (_ : SerializedValue) => None) tag3 sv2
+           end) tag1 sv1
+      end) tag sv0);
+  deserialize_serialize :=
+    fun x : Bool =>
+    match
+      x as b
+      return
+        (do x0 <-
+         deserialize
+           match b with
+           | _true b0 n =>
+               serialize (0, serialize (b0, serialize (n, serialize tt)))
+           | _false b0 => serialize (1, serialize (b0, serialize tt))
+           end;
+         (let (tag, sv) := x0 in
+          match tag with
+          | 0 =>
+              do x1 <- deserialize sv;
+              (let (a, sv0) := x1 in
+               do x2 <- deserialize sv0;
+               (let (a0, sv1) := x2 in do deserialize sv1; Some (_true a a0)))
+          | S tag0 =>
+              match tag0 with
+              | 0 =>
+                  do x1 <- deserialize sv;
+                  (let (a, sv0) := x1 in do deserialize sv0; Some (_false a))
+              | S _ => None
+              end
+          end) = Some b)
+    with
+    | _true b n =>
+        (fun (b0 : bool) (n0 : nat) =>
+         eq_ind_r
+           (fun o : option (nat * SerializedValue) =>
+            match o with
+            | Some val =>
+                let (tag, sv) := val in
+                match tag with
+                | 0 =>
+                    match deserialize sv with
+                    | Some val0 =>
+                        let (a, sv0) := val0 in
+                        match deserialize sv0 with
+                        | Some val1 =>
+                            let (a0, sv1) := val1 in
+                            match deserialize sv1 with
+                            | Some _ => Some (_true a a0)
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    | None => None
+                    end
+                | S tag0 =>
+                    match tag0 with
+                    | 0 =>
+                        match deserialize sv with
+                        | Some val0 =>
+                            let (a, sv0) := val0 in
+                            match deserialize sv0 with
+                            | Some _ => Some (_false a)
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    | S _ => None
+                    end
+                end
+            | None => None
+            end = Some (_true b0 n0))
+           (eq_ind_r
+              (fun o : option (bool * SerializedValue) =>
+               match o with
+               | Some val =>
+                   let (a, sv) := val in
+                   match deserialize sv with
+                   | Some val0 =>
+                       let (a0, sv0) := val0 in
+                       match deserialize sv0 with
+                       | Some _ => Some (_true a a0)
+                       | None => None
+                       end
+                   | None => None
+                   end
+               | None => None
+               end = Some (_true b0 n0))
+              (eq_ind_r
+                 (fun o : option (nat * SerializedValue) =>
+                  match o with
+                  | Some val =>
+                      let (a, sv) := val in
+                      match deserialize sv with
+                      | Some _ => Some (_true b0 a)
+                      | None => None
+                      end
+                  | None => None
+                  end = Some (_true b0 n0)) eq_refl
+                 (deserialize_serialize (n0, serialize tt))
+               :
+               match deserialize (serialize (n0, serialize tt)) with
+               | Some val =>
+                   let (a, sv) := val in
+                   match deserialize sv with
+                   | Some _ => Some (_true b0 a)
+                   | None => None
+                   end
+               | None => None
+               end = Some (_true b0 n0))
+              (deserialize_serialize (b0, serialize (n0, serialize tt)))
+            :
+            match
+              deserialize (serialize (b0, serialize (n0, serialize tt)))
+            with
+            | Some val =>
+                let (a, sv) := val in
+                match deserialize sv with
+                | Some val0 =>
+                    let (a0, sv0) := val0 in
+                    match deserialize sv0 with
+                    | Some _ => Some (_true a a0)
+                    | None => None
+                    end
+                | None => None
+                end
+            | None => None
+            end = Some (_true b0 n0))
+           (deserialize_serialize
+              (0, serialize (b0, serialize (n0, serialize tt))))
+         :
+         do x0 <-
+         deserialize
+           (serialize (0, serialize (b0, serialize (n0, serialize tt))));
+         (let (tag, sv) := x0 in
+          match tag with
+          | 0 =>
+              do x1 <- deserialize sv;
+              (let (a, sv0) := x1 in
+               do x2 <- deserialize sv0;
+               (let (a0, sv1) := x2 in do deserialize sv1; Some (_true a a0)))
+          | S tag0 =>
+              match tag0 with
+              | 0 =>
+                  do x1 <- deserialize sv;
+                  (let (a, sv0) := x1 in do deserialize sv0; Some (_false a))
+              | S _ => None
+              end
+          end) = Some (_true b0 n0)) b n
+    | _false b =>
+        (fun b0 : bool =>
+         eq_ind_r
+           (fun o : option (nat * SerializedValue) =>
+            match o with
+            | Some val =>
+                let (tag, sv) := val in
+                match tag with
+                | 0 =>
+                    match deserialize sv with
+                    | Some val0 =>
+                        let (a, sv0) := val0 in
+                        match deserialize sv0 with
+                        | Some val1 =>
+                            let (a0, sv1) := val1 in
+                            match deserialize sv1 with
+                            | Some _ => Some (_true a a0)
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    | None => None
+                    end
+                | S tag0 =>
+                    match tag0 with
+                    | 0 =>
+                        match deserialize sv with
+                        | Some val0 =>
+                            let (a, sv0) := val0 in
+                            match deserialize sv0 with
+                            | Some _ => Some (_false a)
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    | S _ => None
+                    end
+                end
+            | None => None
+            end = Some (_false b0)) eq_refl
+           (deserialize_serialize (1, serialize (b0, serialize tt)))
+         :
+         do x0 <- deserialize (serialize (1, serialize (b0, serialize tt)));
+         (let (tag, sv) := x0 in
+          match tag with
+          | 0 =>
+              do x1 <- deserialize sv;
+              (let (a, sv0) := x1 in
+               do x2 <- deserialize sv0;
+               (let (a0, sv1) := x2 in do deserialize sv1; Some (_true a a0)))
+          | S tag0 =>
+              match tag0 with
+              | 0 =>
+                  do x1 <- deserialize sv;
+                  (let (a, sv0) := x1 in do deserialize sv0; Some (_false a))
+              | S _ => None
+              end
+          end) = Some (_false b0)) b
+    end
+|}
+     : Serializable Bool
