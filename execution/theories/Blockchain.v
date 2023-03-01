@@ -134,6 +134,7 @@ Record Chain :=
     finalized_height : nat;
   }.
 
+Local Set Primitive Projections.
 Record ContractCallContext :=
   build_ctx {
     (** Address that initiated the transaction (never a contract) *)
@@ -148,6 +149,7 @@ Record ContractCallContext :=
     (** Amount of currency passed in call *)
     ctx_amount : Amount;
   }.
+Local Unset Primitive Projections.
 
 (** Operations that a contract can return or that a user can use
 to interact with a chain. *)
