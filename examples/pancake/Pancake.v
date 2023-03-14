@@ -128,7 +128,6 @@ Section Pancake.
 
     Ok(state<|created := true|>). 
     
-    (* Add the new pair to the state/list of pairs*)
 
 
     Definition get_reserves (tokenA: Address)
@@ -212,14 +211,13 @@ Section Pancake.
 
     (* This function can probably be omitted. It is mainly focusing on a Path > 2, and therefore sorting the input
        In our simple example with only 2 Tokens, it should be possible to leave this out.
-       SHOULD CALCULATE THE 2 AMOUNTS OUT *)
+       SHOULD CALCULATE THE 2 AMOUNTS OUT 
     Definition pre_swap (chain : Chain)
                         (ctx : ContractCallContext)
                         (state : State)
                         (param : swap_param)
                     : result State Error := 
-    Ok(state)
-    .
+    Ok(state). *)
         
     Definition swap_exact_eth_for_tokens   (chain : Chain)
                                            (ctx : ContractCallContext)
@@ -265,8 +263,50 @@ Section Theories.
       Proof.
         intros chain ctx tokenA tokenB param reserves.
         unfold try_createPair.
-        destruct (address_eqb tokenA tokenB) eqn:H.
-        simpl. 
-      Qed.
+        simpl.
+    Admitted.
+    
+    Lemma swap_updates_reserves :
+    forall (chain : Chain)
+           (ctx : ContractCallContext)
+           (tokenA tokenB : Address)
+           (params : swap_param)
+           (reserves_before reserves_after : (TokenValue * TokenValue)),
+      let state_before := {| pair := (tokenA, tokenB); created := true; reserves := reserves_before |} in
+      let state_after := swap_exact_eth_for_tokens chain ctx state_before params in
+      state_after = Ok {| pair := (tokenA, tokenB); created := true; reserves := reserves_after |} ->
+      reserves_after <> reserves_before.
+    Proof.
+        intros.
+        unfold swap_exact_eth_for_tokens in H.
+        destruct state_before.
+        simpl in H.
+        inversion H.
+        subst.
+        simpl.
+        intro H_contra.
+        inversion H_contra.
+        subst.
+    Admitted.
+
+    (* The two resulting states should be equal *)
+    Lemma amm_transition_deterministic :
+    forall (chain : Chain)
+           (ctx : ContractCallContext)
+           (state : State)
+           (params : swap_param)
+           (state' state'' : State),
+      swap_exact_eth_for_tokens chain ctx state params = Ok state' ->
+      swap_exact_eth_for_tokens chain ctx state params = Ok state'' ->
+      state' = state''.
+  Proof.
+    intros.
+    unfold swap_exact_eth_for_tokens in *.
+    destruct state.
+    simpl in *.
+    inversion H.
+    inversion H0.
+    subst.
+    Admitted.
 
 End Theories.
