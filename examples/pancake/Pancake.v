@@ -50,9 +50,7 @@ Section Pancake.
         tokenB : Address;
         amount0 : TokenValue;
         amount1 : TokenValue;
-        amount0Out: TokenValue;
-        amount1Out: TokenValue;
-        to : Address
+        to : Address (* Address initiating the swap *)
     }.
 
     Record State :=
@@ -107,10 +105,11 @@ Section Pancake.
           created := setup.(pair_created)
     |}.
 
+    (* The in_amount should be greater than the min_amount *)
     Definition check_amount (in_amount: TokenValue)
                             (min_amount: TokenValue)
                             : bool :=
-    (in_amount <? min_amount).
+    (min_amount <? in_amount).
     
     Definition try_createPair (chain : Chain)
                               (ctx : ContractCallContext)
@@ -128,7 +127,6 @@ Section Pancake.
 
     Ok(state<|created := true|>). 
     
-
 
     Definition get_reserves (tokenA: Address)
                             (tokenB: Address)
@@ -185,27 +183,27 @@ Section Pancake.
                          (param : swap_param)
                     : result State Error :=
     (* Require that amounts are greater than 0 *)
-    do _ <- throwIf (check_amount 0 param.(amount0Out)) default_error; (* Pancake: INSUFFICIENT_OUTPUT_AMOUNT*)
-    do _ <- throwIf (check_amount 0 param.(amount1Out)) default_error; (* Pancake: INSUFFICIENT_OUTPUT_AMOUNT*)
+    do _ <- throwIf (check_amount param.(amount0) 0) default_error; (* Pancake: INSUFFICIENT_OUTPUT_AMOUNT*)
+    do _ <- throwIf (check_amount param.(amount1) 0) default_error; (* Pancake: INSUFFICIENT_OUTPUT_AMOUNT*)
 
     let (reserve0, reserve1) := get_reserves param.(tokenA) param.(tokenB) state in
 
     (* Require that there is sufficient liquidity *)
-    do _ <- throwIf (check_amount param.(amount0Out) reserve0) default_error; (* Pancake: INSUFFICIENT_LIQUIDITY*)
-    do _ <- throwIf (check_amount param.(amount1Out) reserve1) default_error; (* Pancake: INSUFFICIENT_LIQUIDITY*)
+    do _ <- throwIf (check_amount reserve0 param.(amount0) ) default_error; (* Pancake: INSUFFICIENT_LIQUIDITY*)
+    do _ <- throwIf (check_amount reserve1 param.(amount1) ) default_error; (* Pancake: INSUFFICIENT_LIQUIDITY*)
 
     (* Require that 'to' address is not equal to the address of tokenA or tokenB *)
 
-    (* We transfer the amount0Out and amount1Out *)
+    (* We transfer the amount0 and amount1 *)
 
     (* Update the balance of tokenA and tokenB *)
 
     let balance0 := fst state.(reserves) in
     let balance1 := snd state.(reserves) in
 
-    (* Update the reserves *)
+    (* Update the reserves, eg. adding BNB (amount0) and subtracting the token swapped to *)
 
-    let new_state := state<|reserves := (balance0, balance1)|> in 
+    let new_state := state<|reserves := (balance0 + param.(amount0), balance1 - param.(amount1))|> in 
 
     Ok(new_state).
 
@@ -227,7 +225,7 @@ Section Pancake.
     (* TokenA has to be BNB  *)
     (* do _ <- throwIf (address_eqb tokenA WETH) default_error; (* Pancake: INVALID_PATH*) *)                                        
     let (cal_amount0, cal_amount1) := get_amounts_out param.(value) param.(tokenA) param.(tokenB) state in
-    let new_param := param<|amount0 := cal_amount0|> in 
+    let new_param := param<|amount0 := cal_amount0|><| amount1 := cal_amount1|> in 
     (* Require that the output amount is greater than our amountOutMin *)
     do _ <- throwIf (check_amount cal_amount1 (new_param.(amountOutMin))) default_error; (* Pancake: INSUFFICIENT_OUTPUT_AMOUNT*) 
 
@@ -251,6 +249,42 @@ Section Theories.
     eauto.
   Qed.
 
+  Lemma check_amount_false : forall (a b : TokenValue), (a <? b) = true -> check_amount a b = false.
+  Proof.
+
+  Admitted.
+
+  Lemma swap_exact_eth_for_tokens_invalid_amountoutmin :
+  forall (chain : Chain)
+         (ctx : ContractCallContext)
+         (param: swap_param)
+         (state : State),
+         param.(amount1) <? param.(amountOutMin) = true ->
+    swap_exact_eth_for_tokens chain ctx state param  = error.
+Proof.
+    intros chain ctx param state H1.
+    unfold swap_exact_eth_for_tokens.
+
+Qed.
+
+
+ (* There should be an error if creating a pair with identical address *)
+
+  Lemma try_createPair_identical_address : 
+  forall (chain : Chain)
+         (ctx : ContractCallContext)
+         (tokenA tokenB : Address)
+         (param : swap_param)
+         (state: State),
+    address_eqb tokenA tokenB = true -> try_createPair chain ctx tokenA tokenB param state = error.
+    Proof.
+        intros chain ctx tokenA tokenB param state H.
+        unfold try_createPair.
+        rewrite H.
+        reflexivity.
+    Qed.
+
+  (* When creating a pair the created boolean should be set to true *)
   Lemma pair_created_updates_correctly :
   forall (chain : Chain)
          (ctx : ContractCallContext)
@@ -266,6 +300,7 @@ Section Theories.
         simpl.
     Admitted.
     
+    (* The reserves following a successful swap should be changed *)
     Lemma swap_updates_reserves :
     forall (chain : Chain)
            (ctx : ContractCallContext)
@@ -299,14 +334,15 @@ Section Theories.
       swap_exact_eth_for_tokens chain ctx state params = Ok state' ->
       swap_exact_eth_for_tokens chain ctx state params = Ok state'' ->
       state' = state''.
-  Proof.
-    intros.
-    unfold swap_exact_eth_for_tokens in *.
-    destruct state.
-    simpl in *.
-    inversion H.
-    inversion H0.
-    subst.
+    Proof.
+        intros.
+        unfold swap_exact_eth_for_tokens in *.
+        destruct state.
+        simpl in *.
+        inversion H.
+        inversion H0.
+        subst.
     Admitted.
-
+    
+    
 End Theories.
