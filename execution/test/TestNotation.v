@@ -33,7 +33,7 @@ From Coq Require Import Bool.
     These values can be overwritten between tests by:
     << Extract Constant max_trace_length => "3" >>
 *)
-Definition max_trace_length : nat := 7.
+Definition max_trace_length : nat := 8.
 Definition max_acts_per_block : nat := 2.
 Definition act_depth : nat := 3.
 
