@@ -168,10 +168,10 @@ Section Pancake.
     
     let (reserve0, reserve1) := get_reserves param.(tokenA) param.(tokenB) state in
 
-    (* Require that there is sufficient liquidity *)
+    (* Require that there is sufficient liquidity 
     do _ <- throwIf (reserve0 <? param.(amount0) ) default_error; (* Pancake: INSUFFICIENT_LIQUIDITY*)
     do _ <- throwIf (reserve1 <? param.(amount1) ) default_error; (* Pancake: INSUFFICIENT_LIQUIDITY*)
-
+*)
     (* Require that 'to' address is not equal to the address of tokenA or tokenB *)
     do _ <- throwIf (address_eqb param.(to) param.(tokenA) ) default_error; (* Pancake: ZERO_ADDRESS*)
     do _ <- throwIf (address_eqb param.(to) param.(tokenB) ) default_error; (* Pancake: ZERO_ADDRESS*)
@@ -188,7 +188,22 @@ Section Pancake.
     let new_state := state<|reserves := (balance0 + param.(amount0), balance1 - param.(amount1))|> in 
 
     Ok(new_state).
-        
+
+    Definition swap_exact_tokens_for_eth (chain : Chain)
+                                         (ctx : ContractCallContext)
+                                         (state : State)
+                                         (param : swap_param)
+                                         : result State Error :=
+    let cal_amount := get_amount_out param.(amount0) (snd state.(reserves)) (fst state.(reserves)) in
+    let new_param := param<|amount0 := cal_amount|> in
+    
+    let balance0 := fst state.(reserves) in
+    let balance1 := snd state.(reserves) in
+    
+    let new_state := state<|reserves := (cal_amount, balance1 + param.(amount1))|> in 
+
+    Ok(new_state).
+
     Definition swap_exact_eth_for_tokens   (chain : Chain)
                                            (ctx : ContractCallContext)
                                            (state : State)
@@ -270,8 +285,8 @@ Section Theories.
         rewrite H1. simpl. reflexivity.
     Qed.
    
-    (* The reserves are updated after a swap transaction*)
-    Lemma swap_updates_reserves :
+    (* The reserves are updated after a eth -> token swap transaction*)
+    Lemma swap_exact_eth_for_tokens_updates_reserves :
     forall (chain : Chain)
            (ctx : ContractCallContext)
            (tokenA tokenB to : Address)
@@ -296,7 +311,7 @@ Section Theories.
 
   (* The first step in proving that a frontrunning attack is possible.
      An actor would receive less amount of tokens when swapping after someone else has made the same swap *)
-  Lemma similar_transaction_results_in_lower_output :
+  Lemma similar_transaction_results_in_smaller_output :
   forall (chain : Chain)
          (ctx : ContractCallContext)
          (tokenA tokenB to : Address),
@@ -324,7 +339,120 @@ Section Theories.
     simpl. rewrite h1. rewrite h2. simpl. reflexivity.
   Qed.
 
+
+  Lemma swap_exact_tokens_for_eth_updates_reserves :
+  forall (chain : Chain)
+         (ctx : ContractCallContext)
+         (tokenA tokenB to : Address)
+         (param : swap_param),
+  address_eqb to tokenA = false ->
+  address_eqb to tokenB = false ->
+  let state := {| pair := (tokenA, tokenB); created := true; reserves := (10,100000) |} in
+  let param := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 10000; amount1 := 10000; to := to|} in
+  let initial_reserves := get_reserves tokenA tokenB state in
+  match swap_exact_tokens_for_eth chain ctx state param with
+  | Err _ => False (* do nothing *)
+  | Ok next_state =>
+      let next_reserves := get_reserves tokenA tokenB next_state in
+      initial_reserves <> next_reserves
+  end.
+  Proof.
+    intros chain ctx tokenA tokenB to param h1 h2.
+    unfold get_reserves.
+    unfold swap_exact_tokens_for_eth. unfold real_swap.
+    simpl. unfold get_amount_out. discriminate.
+  Qed.
+
+  (* Swapping x amount of BNB to y amount of token Z and thereafter swapping y amount of
+      token Z should return same amount of x BNB *)
+  Lemma reversing_a_swap_results_in_initial_reserves :
+  forall (chain : Chain)
+         (ctx : ContractCallContext)
+         (tokenA tokenB to : Address),
+  address_eqb to tokenA = false ->
+  address_eqb to tokenB = false ->
+  let state := {| pair := (tokenA, tokenB); created := true; reserves := (100,1000000000) |} in
+  let param1 := {| amountOutMin := 1000; value := 100; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 500; to := to|} in
+  let initial_reserves := get_reserves tokenA tokenB state in
+  match swap_exact_eth_for_tokens chain ctx state param1 with
+  | Err _ => False (* do nothing *)
+  | Ok next_state =>
+      let first_swap_amount := snd initial_reserves - snd next_state.(reserves) in
+      let param2 := {| amountOutMin := 9000; value := 0; tokenA := tokenA; tokenB := tokenB; amount0 := first_swap_amount; amount1 := first_swap_amount; to := to|} in
+      match swap_exact_tokens_for_eth chain ctx next_state param2 with
+      | Err _ => False (* do nothing *)
+      | Ok next_state2 =>
+          let next_reserves := get_reserves tokenA tokenB next_state2 in
+          initial_reserves = next_reserves
+      end
+  end.
+  Proof.
+    intros chain ctx tokenA tokenB to h1 h2.
+    simpl. unfold swap_exact_eth_for_tokens. unfold real_swap.
+    simpl. rewrite h1. rewrite h2. simpl. unfold get_reserves. simpl. unfold get_amount_out. simpl.
+    (* Have to figure out how to handle fee.
+       Works if removing fee from get_amount_out function *)
+    Admitted.
     
-  
+
+    (* The reserves are updated after a eth -> token swap transaction*)
+    Lemma swap_exact_eth_for_tokens_updates_reserves_generic :
+    forall (chain : Chain)
+            (ctx : ContractCallContext)
+            (param : swap_param)
+            (state: State),
+    address_eqb param.(to) param.(tokenA) = false ->
+    address_eqb param.(to) param.(tokenB) = false ->
+    param.(value) <? 0 = false ->
+    get_amount_out (value param) (fst (reserves state))
+    (snd (reserves state))  <? param.(amountOutMin) = false ->
+    get_amount_out (value param) (fst (reserves state))
+    (snd (reserves state))  <? 0 = false ->
+    param.(value) > 0 ->
+    let initial_reserves := get_reserves param.(tokenA) param.(tokenB) state in
+    match swap_exact_eth_for_tokens chain ctx state param with
+    | Err _ => False (* do nothing *)
+    | Ok next_state =>
+        let next_reserves := get_reserves param.(tokenA) param.(tokenB) next_state in
+        initial_reserves = next_reserves
+    end.
+    Proof.
+      intros chain ctx param state h1 h2 h3 h4 h5 h6.
+      unfold get_reserves.
+      unfold swap_exact_eth_for_tokens. unfold real_swap.
+      simpl. rewrite h1. rewrite h2. rewrite h3. rewrite h4. rewrite h5. simpl.
+      unfold get_amount_out. unfold reserves.
+      
+    Qed.
+
+
+  (* An adversary picks up an actors swap transaction and fires an identical transaction beforehand *)
+  Lemma adversary_makes_a_net_gain :
+  forall (chain : Chain)
+  (ctx : ContractCallContext)
+  (tokenA tokenB to : Address),
+  address_eqb to tokenA = false ->
+  address_eqb to tokenB = false ->
+  let state := {| pair := (tokenA, tokenB); created := true; reserves := (10,100000) |} in
+  let param1 := {| amountOutMin := 900; value := 2; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 5; to := to|} in
+  let param2 := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 10000; amount1 := 10000; to := to|} in
+  let initial_reserves := get_reserves tokenA tokenB state in
+  match swap_exact_eth_for_tokens chain ctx state param1 with
+    Err _ => False (* do nothing *)
+    | Ok next_state =>
+        let amount_swapped_adversary := snd initial_reserves - snd next_state.(reserves) in
+        match swap_exact_tokens_for_eth chain ctx next_state param2 with
+        | Err _ => False (* do nothing *)
+        | Ok next_state2 =>
+            let next_reserves := get_reserves tokenA tokenB next_state2 in
+            let amount_swapped_actor := fst next_state2.(reserves) in
+            amount_swapped_adversary > amount_swapped_actor
+        end
+    end.
+  Proof.
+    intros chain ctx tokenA tokenB to h1 h2.
+    unfold get_reserves. simpl.
+    unfold swap_exact_eth_for_tokens. unfold swap_exact_tokens_for_eth. unfold real_swap. 
+    simpl. rewrite h1. rewrite h2. simpl. unfold get_amount_out. simpl.
 
 End Theories.
