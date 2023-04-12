@@ -4,7 +4,8 @@
      & https://github.com/pancakeswap/pancake-smart-contracts/blob/master/projects/exchange-protocol/contracts/PancakePair.sol
 
      The code is combining the 3 contracts by traversing the swap function and implementing needed helper functions.
-     The implementation is a simplified version and does not consider liquidity nor following a 'path' for swapping. eg. token -> BNB -> token
+     The implementation is a simplified version and does not consider liquidity nor following a 'path' for swapping. eg. token -> BNB -> token.
+     Furthermore, the implementation only allows for the creation of a single AMM pair.
 
 *)
 
@@ -26,10 +27,11 @@ From ConCert.Execution Require Import ContractCommon.
 From ConCert.Utils Require Import Extras.
 From ConCert.Utils Require Import RecordUpdate.
 
-Open Scope Z.
 
+Open Scope Z.
 Section Pancake.
     Context {BaseTypes : ChainBase}.
+
     Definition TokenValue := N.
 
     Open Scope N_scope.
@@ -40,8 +42,14 @@ Section Pancake.
 
     Definition Error : Type := nat.
     Definition default_error : Error := 1%nat.
+    Definition zero_address := Address.
 
-    Record swap_param :=
+    Definition error {T : Type} : result T Error :=
+      Err default_error.
+
+    Definition Result : Type := result (State * list ActionBody) Error. 
+
+    Record Swap_param :=
       build_swap_param {
         value : TokenValue;
         amountOutMin: TokenValue;
@@ -57,38 +65,32 @@ Section Pancake.
           pair : (Address * Address);
           created : bool;
           reserves : (TokenValue * TokenValue);
-      }.
-
-      Definition WETH := Address.
-      Definition zero_address := Address.
-
-    Definition error {T : Type} : result T Error :=
-        Err default_error.
-
-    Definition Result : Type := result (State * list ActionBody) Error.    
+      }.   
 
     Record Setup :=
         build_setup {
-            init_address : Address;
-            init_amount: TokenValue;
+            init_addressA : Address;
+            init_addressB : Address;
+            init_amountA: TokenValue;
+            init_amountB: TokenValue;
             pair_created: bool;
         }.
 
     (* begin hide *)
     MetaCoq Run (make_setters State).
-    MetaCoq Run (make_setters swap_param).
+    MetaCoq Run (make_setters Swap_param).
     MetaCoq Run (make_setters Setup).
 
     Section Serialization.
 
-    Global Instance setup_serializable : Serializable Setup :=
-      Derive Serializable Setup_rect <build_setup>.
+      Global Instance setup_serializable : Serializable Setup :=
+        Derive Serializable Setup_rect <build_setup>.
 
-    Global Instance state_serializable : Serializable State :=
-      Derive Serializable State_rect <build_state>.
+      Global Instance state_serializable : Serializable State :=
+        Derive Serializable State_rect <build_state>.
 
-    Axiom set_param_serializable : Serializable swap_param.
-      Existing Instance set_param_serializable.
+      Global Instance swap_param_serializable : Serializable Swap_param :=
+        Derive Serializable Swap_param_rect <build_swap_param>.
 
     End Serialization.
     (* end hide *)
@@ -97,8 +99,8 @@ Section Pancake.
                     (ctx : ContractCallContext)
                     (setup : Setup)
                     : result State Error :=
-    Ok {| pair := (setup.(init_address), setup.(init_address));
-          reserves := (setup.(init_amount), setup.(init_amount));
+    Ok {| pair := (setup.(init_addressA), setup.(init_addressB));
+          reserves := (setup.(init_amountA), setup.(init_amountB));
           created := setup.(pair_created)
     |}.
     
@@ -106,42 +108,28 @@ Section Pancake.
                               (ctx : ContractCallContext)
                               (tokenA: Address)
                               (tokenB: Address)
-                              (param : swap_param)
+                              (param: Swap_param)
                               (state: State)
                               : result State Error :=
     do _ <- throwIf (address_eqb tokenA tokenB) default_error; (* Pancake: IDENTICAL_ADDRESS*)
 
     do _ <- throwIf (state.(created)) default_error; (* Pancake: PAIR_EXISTS*)
 
-    (* Could later on have the addLiqudity functionality.
-       For now we manually set the liqudity for each token *)
-
     Ok(state<|created := true|>). 
 
-    Definition set_initial_reserves (tokenA: Address)
-                                    (tokenB: Address)
-                                    (amountA: TokenValue)
-                                    (amountB: TokenValue)
-                                    (state: State)
-                                    : result State Error :=
-    do _ <- throwIf (amountA <? 0) default_error;
-    do _ <- throwIf (amountB <? 0) default_error;
-    let new_state := state<|reserves := (amountA, amountB)|> in 
-    Ok(new_state).
-
+    (* Returns the reserves of tokenA/tokenB in a specific state *)
     Definition get_reserves (tokenA: Address)
                             (tokenB: Address)
                             (state: State)
                             : (TokenValue * TokenValue) :=
     (fst state.(reserves) , snd state.(reserves)).
     
-    (* Given input amount (BNB) and token pair reserves, returns the maximum output amount of the other asset*)
+    (* Given input amount (BNB) and token pair reserves, returns the maximum output amount of the other asset.
+       TODO: figure out how to handle the excess amount from fees. *)
     Definition get_amount_out (amountIn: TokenValue)
                               (reserveIn: TokenValue)
                               (reserveOut: TokenValue)
                               : TokenValue :=
-    (* Add check for input amount *)
-    (* Add check for sufficient liquidity *)
     let amountInWithFee := amountIn * 9975 in
     let numerator := amountInWithFee * reserveOut in
     let denominator := reserveIn * 10000 + amountInWithFee in
@@ -152,7 +140,7 @@ Section Pancake.
                                (tokenB: Address)
                                (state: State)
                                : (TokenValue * TokenValue) := 
-    let amount0 := amountIn in (* The amount of swapped BNB *)
+    let amount0 := amountIn in
     let (reserveIn, reserveOut) := get_reserves tokenA tokenB state in
     let amount1 := get_amount_out amount0 reserveIn reserveOut in
     (amount0, amount1).
@@ -160,7 +148,7 @@ Section Pancake.
     Definition real_swap (chain : Chain)
                          (ctx : ContractCallContext)
                          (state : State)
-                         (param : swap_param)
+                         (param : Swap_param)
                     : result State Error :=
     (* Require that amounts are greater than 0 *)
     do _ <- throwIf (param.(amount0) <? 0) default_error; (* Pancake: INSUFFICIENT_OUTPUT_AMOUNT*)
@@ -168,23 +156,19 @@ Section Pancake.
     
     let (reserve0, reserve1) := get_reserves param.(tokenA) param.(tokenB) state in
 
-    (* Require that there is sufficient liquidity 
+    (* Require that there is sufficient liquidity *)
     do _ <- throwIf (reserve0 <? param.(amount0) ) default_error; (* Pancake: INSUFFICIENT_LIQUIDITY*)
     do _ <- throwIf (reserve1 <? param.(amount1) ) default_error; (* Pancake: INSUFFICIENT_LIQUIDITY*)
-*)
+
     (* Require that 'to' address is not equal to the address of tokenA or tokenB *)
     do _ <- throwIf (address_eqb param.(to) param.(tokenA) ) default_error; (* Pancake: ZERO_ADDRESS*)
     do _ <- throwIf (address_eqb param.(to) param.(tokenB) ) default_error; (* Pancake: ZERO_ADDRESS*)
   
-    (* Transfer the amount0 and amount1 *)
-
-    (* Update the balance of tokenA and tokenB *)
-
+    (* Get the current reserves. *)
     let balance0 := fst state.(reserves) in
     let balance1 := snd state.(reserves) in
 
     (* Update the reserves, eg. adding BNB (amount0) and subtracting the token swapped to *)
-
     let new_state := state<|reserves := (balance0 + param.(amount0), balance1 - param.(amount1))|> in 
 
     Ok(new_state).
@@ -192,7 +176,7 @@ Section Pancake.
     Definition swap_exact_tokens_for_eth (chain : Chain)
                                          (ctx : ContractCallContext)
                                          (state : State)
-                                         (param : swap_param)
+                                         (param : Swap_param)
                                          : result State Error :=
     let cal_amount := get_amount_out param.(amount0) (snd state.(reserves)) (fst state.(reserves)) in
     let new_param := param<|amount0 := cal_amount|> in
@@ -207,13 +191,11 @@ Section Pancake.
     Definition swap_exact_eth_for_tokens   (chain : Chain)
                                            (ctx : ContractCallContext)
                                            (state : State)
-                                           (param : swap_param)
-                                           : result State Error :=
-    (* TokenA has to be BNB  *)
-    (* do _ <- throwIf (address_eqb tokenA WETH) default_error; (* Pancake: INVALID_PATH*) *)                                        
+                                           (param : Swap_param)
+                                           : result State Error :=                                    
     let (cal_amount0, cal_amount1) := get_amounts_out param.(value) param.(tokenA) param.(tokenB) state in
     let new_param := param<|amount0 := cal_amount0|><| amount1 := cal_amount1|> in 
-    (* Require that the output amount is greater than our amountOutMin *)
+    (* Require that the output amount is greater than amountOutMin *)
     do _ <- throwIf (cal_amount1 <? (new_param.(amountOutMin))) default_error; (* Pancake: INSUFFICIENT_OUTPUT_AMOUNT*) 
 
     (* Conversion from BNB to WBNB happens here and is deposited *)
@@ -236,11 +218,27 @@ Section Theories.
       eauto.
     Qed.
 
+  (* Trivial proof to show init function updates the state correctly. *)
+  Lemma init_updates_state :
+  forall (chain : Chain)
+         (ctx : ContractCallContext)
+         (addressA addressB: Address)
+         (amountA amountB: TokenValue)
+         (state : State),
+  let setup := {|init_addressA := addressA; init_addressB := addressB; init_amountA := amountA; init_amountB := amountB;  pair_created := true; |} in 
+  match init chain ctx setup with
+  | Err _ => False
+  | Ok next_state => next_state.(created) = true
+  end.
+  Proof.
+    reflexivity.
+  Qed. 
+
   (* If the amountOutMin is higher than the swap amount an error is thrown  *)
   Lemma swap_exact_eth_for_tokens_invalid_amountoutmin :
   forall (chain : Chain)
          (ctx : ContractCallContext)
-         (param: swap_param)
+         (param: Swap_param)
          (state : State),
          param.(amount1) <? param.(amountOutMin) = true ->
          param.(amount1) = get_amount_out (value param) (fst (reserves state))
@@ -250,7 +248,7 @@ Section Theories.
       intros chain ctx param state H1 H2.
       unfold swap_exact_eth_for_tokens.
       simpl. rewrite H2 in H1.
-      rewrite H1. reflexivity.
+      rewrite H1. simpl. reflexivity.
     Qed.
 
  (* There should be an error if creating a pair with identical address *)
@@ -258,7 +256,7 @@ Section Theories.
   forall (chain : Chain)
          (ctx : ContractCallContext)
          (tokenA tokenB : Address)
-         (param : swap_param)
+         (param : Swap_param)
          (state: State),
     address_eqb tokenA tokenB = true -> try_createPair chain ctx tokenA tokenB param state = error.
     Proof.
@@ -267,30 +265,13 @@ Section Theories.
         rewrite H. simpl.
         reflexivity.
     Qed.
-
-  (* When creating a pair the created boolean should be set to true *)
-  Lemma pair_created_updates_correctly :
-  forall (chain : Chain)
-         (ctx : ContractCallContext)
-         (tokenA tokenB : Address)
-         (param : swap_param)
-         (reserves : (TokenValue * TokenValue)),
-         (tokenA =? tokenB) = false ->
-    let state := {| pair := (tokenA, tokenB); created := false; reserves := reserves |} in
-    try_createPair chain ctx tokenA tokenB param state = 
-      Ok (state<|created:=true|>).
-      Proof.
-        intros chain ctx tokenA tokenB param reserves H1.
-        unfold try_createPair.
-        rewrite H1. simpl. reflexivity.
-    Qed.
    
     (* The reserves are updated after a eth -> token swap transaction*)
     Lemma swap_exact_eth_for_tokens_updates_reserves :
     forall (chain : Chain)
            (ctx : ContractCallContext)
            (tokenA tokenB to : Address)
-           (param : swap_param),
+           (param : Swap_param),
     address_eqb to tokenA = false ->
     address_eqb to tokenB = false ->
     let state := {| pair := (tokenA, tokenB); created := true; reserves := (10,100000) |} in
@@ -339,15 +320,15 @@ Section Theories.
     simpl. rewrite h1. rewrite h2. simpl. reflexivity.
   Qed.
 
-
+  (* Transacting the other way (Token -> BNB) updates the reserves. *)
   Lemma swap_exact_tokens_for_eth_updates_reserves :
   forall (chain : Chain)
          (ctx : ContractCallContext)
          (tokenA tokenB to : Address)
-         (param : swap_param),
+         (param : Swap_param),
   address_eqb to tokenA = false ->
   address_eqb to tokenB = false ->
-  let state := {| pair := (tokenA, tokenB); created := true; reserves := (10,100000) |} in
+  let state := {| pair := (tokenA, tokenB); created := true; reserves := (100,100000) |} in
   let param := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 10000; amount1 := 10000; to := to|} in
   let initial_reserves := get_reserves tokenA tokenB state in
   match swap_exact_tokens_for_eth chain ctx state param with
@@ -364,7 +345,7 @@ Section Theories.
   Qed.
 
   (* Swapping x amount of BNB to y amount of token Z and thereafter swapping y amount of
-      token Z should return same amount of x BNB *)
+      token Z should return same amount of x BNB. Note that this proof will not currently work as a fee is taken with every swap. *)
   Lemma reversing_a_swap_results_in_initial_reserves :
   forall (chain : Chain)
          (ctx : ContractCallContext)
@@ -372,7 +353,7 @@ Section Theories.
   address_eqb to tokenA = false ->
   address_eqb to tokenB = false ->
   let state := {| pair := (tokenA, tokenB); created := true; reserves := (100,1000000000) |} in
-  let param1 := {| amountOutMin := 1000; value := 100; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 500; to := to|} in
+  let param1 := {| amountOutMin := 1000; value := 100; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
   let initial_reserves := get_reserves tokenA tokenB state in
   match swap_exact_eth_for_tokens chain ctx state param1 with
   | Err _ => False (* do nothing *)
@@ -393,13 +374,12 @@ Section Theories.
     (* Have to figure out how to handle fee.
        Works if removing fee from get_amount_out function *)
     Admitted.
-    
-
-    (* The reserves are updated after a eth -> token swap transaction*)
+  
+    (* The reserves are updated after a eth -> token swap transaction. Generic version with no swap paramaters*)
     Lemma swap_exact_eth_for_tokens_updates_reserves_generic :
     forall (chain : Chain)
             (ctx : ContractCallContext)
-            (param : swap_param)
+            (param : Swap_param)
             (state: State),
     address_eqb param.(to) param.(tokenA) = false ->
     address_eqb param.(to) param.(tokenB) = false ->
@@ -409,50 +389,52 @@ Section Theories.
     get_amount_out (value param) (fst (reserves state))
     (snd (reserves state))  <? 0 = false ->
     param.(value) > 0 ->
+    ((fst (reserves state)) <? param.(value) = false) ->
+    (snd (reserves state) <? get_amount_out (param.(value)) (fst (reserves state)) (snd (reserves state)) = false) ->
     let initial_reserves := get_reserves param.(tokenA) param.(tokenB) state in
     match swap_exact_eth_for_tokens chain ctx state param with
     | Err _ => False (* do nothing *)
     | Ok next_state =>
         let next_reserves := get_reserves param.(tokenA) param.(tokenB) next_state in
-        initial_reserves = next_reserves
+        fst initial_reserves <> fst next_reserves
     end.
     Proof.
-      intros chain ctx param state h1 h2 h3 h4 h5 h6.
+      intros chain ctx param state h1 h2 h3 h4 h5 h6 h7 h8.
       unfold get_reserves.
       unfold swap_exact_eth_for_tokens. unfold real_swap.
-      simpl. rewrite h1. rewrite h2. rewrite h3. rewrite h4. rewrite h5. simpl.
-      unfold get_amount_out. unfold reserves.
-      
-    Qed.
-
+      simpl. rewrite h1. rewrite h2. rewrite h3. rewrite h4. rewrite h5. simpl. rewrite h7. simpl. rewrite h8. simpl. intuition.
+    Qed. 
 
   (* An adversary picks up an actors swap transaction and fires an identical transaction beforehand *)
   Lemma adversary_makes_a_net_gain :
   forall (chain : Chain)
-  (ctx : ContractCallContext)
-  (tokenA tokenB to : Address),
+         (ctx : ContractCallContext)
+         (tokenA tokenB to : Address),
   address_eqb to tokenA = false ->
   address_eqb to tokenB = false ->
   let state := {| pair := (tokenA, tokenB); created := true; reserves := (10,100000) |} in
-  let param1 := {| amountOutMin := 900; value := 2; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 5; to := to|} in
-  let param2 := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 10000; amount1 := 10000; to := to|} in
+  let param1 := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
+  let param2 := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
   let initial_reserves := get_reserves tokenA tokenB state in
   match swap_exact_eth_for_tokens chain ctx state param1 with
     Err _ => False (* do nothing *)
     | Ok next_state =>
         let amount_swapped_adversary := snd initial_reserves - snd next_state.(reserves) in
-        match swap_exact_tokens_for_eth chain ctx next_state param2 with
+        let next_reserves := get_reserves tokenA tokenB next_state in
+        match swap_exact_eth_for_tokens chain ctx next_state param2 with
         | Err _ => False (* do nothing *)
         | Ok next_state2 =>
             let next_reserves := get_reserves tokenA tokenB next_state2 in
-            let amount_swapped_actor := fst next_state2.(reserves) in
-            amount_swapped_adversary > amount_swapped_actor
+            let amount_swapped_actor := snd next_reserves - snd next_state2.(reserves) in
+            amount_swapped_adversary > (snd initial_reserves - snd next_reserves - amount_swapped_adversary)
         end
     end.
   Proof.
     intros chain ctx tokenA tokenB to h1 h2.
     unfold get_reserves. simpl.
     unfold swap_exact_eth_for_tokens. unfold swap_exact_tokens_for_eth. unfold real_swap. 
-    simpl. rewrite h1. rewrite h2. simpl. unfold get_amount_out. simpl.
+    simpl. rewrite h1. rewrite h2. simpl. reflexivity.
+  Qed.
 
 End Theories.
+
