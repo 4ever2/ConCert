@@ -8,6 +8,10 @@ To prove the existence of possible Front-running attacks, we have converted the 
 
 The implemented model is accompanied by several lemmas/proofs that shows the model's functional correctness and ultimately that a front-running attack is possible.
 
+### Limitations
+- Allows for creation of a single AMM pair.
+- Only allows swapping from BNB -> Token or Token -> BNB.
+
 ### Work in Progress
 
 - Find additional lemmas/proofs to show correctness of model.
