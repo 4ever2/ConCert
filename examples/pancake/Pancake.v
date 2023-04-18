@@ -27,7 +27,6 @@ From ConCert.Execution Require Import ContractCommon.
 From ConCert.Utils Require Import Extras.
 From ConCert.Utils Require Import RecordUpdate.
 
-
 Open Scope Z.
 Section Pancake.
     Context {BaseTypes : ChainBase}.
@@ -58,7 +57,7 @@ Section Pancake.
         amount0 : TokenValue;
         amount1 : TokenValue;
         to : Address (* Address initiating the swap *)
-    }.
+      }.
 
     Record State :=
       build_state {
@@ -388,9 +387,9 @@ Section Theories.
     (snd (reserves state))  <? param.(amountOutMin) = false ->
     get_amount_out (value param) (fst (reserves state))
     (snd (reserves state))  <? 0 = false ->
-    param.(value) > 0 ->
     ((fst (reserves state)) <? param.(value) = false) ->
     (snd (reserves state) <? get_amount_out (param.(value)) (fst (reserves state)) (snd (reserves state)) = false) ->
+    param.(value) > 0 ->
     let initial_reserves := get_reserves param.(tokenA) param.(tokenB) state in
     match swap_exact_eth_for_tokens chain ctx state param with
     | Err _ => False (* do nothing *)
@@ -402,7 +401,7 @@ Section Theories.
       intros chain ctx param state h1 h2 h3 h4 h5 h6 h7 h8.
       unfold get_reserves.
       unfold swap_exact_eth_for_tokens. unfold real_swap.
-      simpl. rewrite h1. rewrite h2. rewrite h3. rewrite h4. rewrite h5. simpl. rewrite h7. simpl. rewrite h8. simpl. intuition.
+      simpl. rewrite h1. rewrite h2. rewrite h3. rewrite h4. rewrite h5. simpl. rewrite h6. simpl. rewrite h7. simpl. intuition.
     Qed. 
 
   (* An adversary picks up an actors swap transaction and fires an identical transaction beforehand *)
@@ -437,4 +436,3 @@ Section Theories.
   Qed.
 
 End Theories.
-
