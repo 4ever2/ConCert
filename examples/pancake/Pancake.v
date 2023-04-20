@@ -26,6 +26,8 @@ From ConCert.Execution Require Import Containers.
 From ConCert.Execution Require Import ContractCommon.
 From ConCert.Utils Require Import Extras.
 From ConCert.Utils Require Import RecordUpdate.
+Require Import Reals.
+Require Import Psatz.
 
 Open Scope Z.
 Section Pancake.
@@ -183,6 +185,7 @@ Section Pancake.
     let balance0 := fst state.(reserves) in
     let balance1 := snd state.(reserves) in
     
+    (* Right now the state is only updated with the traded amount. The reserves need to be updated correctly. *)
     let new_state := state<|reserves := (cal_amount, balance1 + param.(amount1))|> in 
 
     Ok(new_state).
@@ -411,8 +414,9 @@ Section Theories.
          (tokenA tokenB to : Address),
   address_eqb to tokenA = false ->
   address_eqb to tokenB = false ->
-  let state := {| pair := (tokenA, tokenB); created := true; reserves := (10,100000) |} in
-  let param1 := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
+  let state := {| pair := (tokenA, tokenB); created := true; reserves := (10,100000000) |} in
+  let initial_bnb_amount := 3 in
+  let param1 := {| amountOutMin := 1; value := initial_bnb_amount; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
   let param2 := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
   let initial_reserves := get_reserves tokenA tokenB state in
   match swap_exact_eth_for_tokens chain ctx state param1 with
@@ -425,14 +429,23 @@ Section Theories.
         | Ok next_state2 =>
             let next_reserves := get_reserves tokenA tokenB next_state2 in
             let amount_swapped_actor := snd next_reserves - snd next_state2.(reserves) in
-            amount_swapped_adversary > (snd initial_reserves - snd next_reserves - amount_swapped_adversary)
+            let param3 := {| amountOutMin := 1; value := amount_swapped_adversary; tokenA := tokenA; tokenB := tokenB; amount0 := amount_swapped_adversary; amount1 := amount_swapped_adversary; to := to|} in
+            match swap_exact_tokens_for_eth chain ctx next_state2 param3 with
+            | Err _ => False (* do nothing *)
+            | Ok next_state3 =>
+              let next_reserves2 := get_reserves tokenA tokenB next_state3 in
+              (* As the reverse swap function right now only return the swapped amount in the state. *)
+              fst next_state3.(reserves) > initial_bnb_amount
+            end
         end
     end.
   Proof.
     intros chain ctx tokenA tokenB to h1 h2.
     unfold get_reserves. simpl.
     unfold swap_exact_eth_for_tokens. unfold swap_exact_tokens_for_eth. unfold real_swap. 
-    simpl. rewrite h1. rewrite h2. simpl. reflexivity.
+    simpl. rewrite h1. rewrite h2. simpl. unfold get_amount_out. simpl.
   Qed.
+
+
 
 End Theories.
