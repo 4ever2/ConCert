@@ -186,7 +186,7 @@ Section Pancake.
     let balance1 := snd state.(reserves) in
     
     (* Right now the state is only updated with the traded amount. The reserves need to be updated correctly. *)
-    let new_state := state<|reserves := (cal_amount, balance1 + param.(amount1))|> in 
+    let new_state := state<|reserves := (balance0-cal_amount, balance1 + param.(amount1))|> in 
 
     Ok(new_state).
 
@@ -407,43 +407,48 @@ Section Theories.
       simpl. rewrite h1. rewrite h2. rewrite h3. rewrite h4. rewrite h5. simpl. rewrite h6. simpl. rewrite h7. simpl. intuition.
     Qed. 
 
-  (* An adversary picks up an actors swap transaction and fires an identical transaction beforehand *)
+  (* An adversary picks up an actors swap transaction and fires an identical transaction beforehand.
+     Thereafter, the adversary reverses the 1st transaction and profts from the increased pricing. *)
   Lemma adversary_makes_a_net_gain :
   forall (chain : Chain)
          (ctx : ContractCallContext)
          (tokenA tokenB to : Address),
   address_eqb to tokenA = false ->
   address_eqb to tokenB = false ->
-  let state := {| pair := (tokenA, tokenB); created := true; reserves := (10,100000000) |} in
-  let initial_bnb_amount := 3 in
-  let param1 := {| amountOutMin := 1; value := initial_bnb_amount; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
-  let param2 := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
+  let state := {| pair := (tokenA, tokenB); created := true; reserves := (100000,1000000) |} in
+  let initial_bnb_swap_amount := 1000 in
+  let param1 := {| amountOutMin := 1; value := initial_bnb_swap_amount; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
+  let param2 := {| amountOutMin := 1; value := initial_bnb_swap_amount; tokenA := tokenA; tokenB := tokenB; amount0 := 1; amount1 := 1; to := to|} in
   let initial_reserves := get_reserves tokenA tokenB state in
+  (* 1st transaction by adversary *)
   match swap_exact_eth_for_tokens chain ctx state param1 with
     Err _ => False (* do nothing *)
     | Ok next_state =>
         let amount_swapped_adversary := snd initial_reserves - snd next_state.(reserves) in
         let next_reserves := get_reserves tokenA tokenB next_state in
+        (* 1st transaction from actor *)
         match swap_exact_eth_for_tokens chain ctx next_state param2 with
         | Err _ => False (* do nothing *)
         | Ok next_state2 =>
             let next_reserves := get_reserves tokenA tokenB next_state2 in
             let amount_swapped_actor := snd next_reserves - snd next_state2.(reserves) in
             let param3 := {| amountOutMin := 1; value := amount_swapped_adversary; tokenA := tokenA; tokenB := tokenB; amount0 := amount_swapped_adversary; amount1 := amount_swapped_adversary; to := to|} in
+            (* 2nd transaction from adversary. *)
             match swap_exact_tokens_for_eth chain ctx next_state2 param3 with
             | Err _ => False (* do nothing *)
             | Ok next_state3 =>
               let next_reserves2 := get_reserves tokenA tokenB next_state3 in
-              (* As the reverse swap function right now only return the swapped amount in the state. *)
-              fst next_state3.(reserves) > initial_bnb_amount
+              let adversary_final_bnb_balance := fst next_state2.(reserves) - fst next_state3.(reserves) in
+              (*  The adversary makes a net gain of 14BNB when doing a front-running example in this scenario. *)
+              adversary_final_bnb_balance > initial_bnb_swap_amount
             end
         end
     end.
   Proof.
     intros chain ctx tokenA tokenB to h1 h2.
-    unfold get_reserves. simpl.
+    unfold get_reserves.
     unfold swap_exact_eth_for_tokens. unfold swap_exact_tokens_for_eth. unfold real_swap. 
-    simpl. rewrite h1. rewrite h2. simpl. unfold get_amount_out. simpl.
+    simpl. rewrite h1. rewrite h2. simpl. reflexivity.
   Qed.
 
 
