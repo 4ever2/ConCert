@@ -11,8 +11,7 @@ The implemented model is accompanied by several lemmas/proofs that shows the mod
 All code (specification and proofs) are currently in [Pancake.V](https://github.com/Mallingo/ConCert/blob/master/examples/pancake/Pancake.v). Will be refactored at a later stage.
 
 ### Limitations
-- Allows for creation of a single AMM pair.
-- Only allows swapping from BNB -> Token or Token -> BNB.
+- Allows for creation of a single AMM pair (in the same context).
 - Code extraction not supported
 
 ### Work in Progress

@@ -172,13 +172,26 @@ Section Pancake.
 
     Ok(new_state).
 
+    Definition swap_exact_tokens_for_tokens (chain : Chain)
+                                            (ctx : ContractCallContext)
+                                            (state : State)
+                                            (param : Swap_param)
+                                            : result State Error :=
+    let cal_amount := get_amount_out param.(amount0) (snd state.(reserves)) (fst state.(reserves)) in
+
+    let balance0 := fst state.(reserves) in
+    let balance1 := snd state.(reserves) in
+
+    let new_state := state<|reserves := (balance0-cal_amount, balance1 + param.(amount1))|> in 
+
+    Ok(new_state).
+
     Definition swap_exact_tokens_for_eth (chain : Chain)
                                          (ctx : ContractCallContext)
                                          (state : State)
                                          (param : Swap_param)
                                          : result State Error :=
     let cal_amount := get_amount_out param.(amount0) (snd state.(reserves)) (fst state.(reserves)) in
-    let new_param := param<|amount0 := cal_amount|> in
     
     let balance0 := fst state.(reserves) in
     let balance1 := snd state.(reserves) in
@@ -289,6 +302,30 @@ Section Theories.
     unfold swap_exact_eth_for_tokens. unfold real_swap.
     simpl. rewrite h1. rewrite h2. simpl. discriminate.
   Qed.
+
+    (* The reserves are updated after a token -> token swap transaction*)
+    Lemma swap_exact_tokens_for_tokens_updates_reserves :
+    forall (chain : Chain)
+            (ctx : ContractCallContext)
+            (tokenA tokenB to : Address)
+            (param : Swap_param),
+    address_eqb to tokenA = false ->
+    address_eqb to tokenB = false ->
+    let state := {| pair := (tokenA, tokenB); created := true; reserves := (100000,100000) |} in
+    let param := {| amountOutMin := 1; value := 1; tokenA := tokenA; tokenB := tokenB; amount0 := 10000; amount1 := 10000; to := to|} in
+    let initial_reserves := get_reserves tokenA tokenB state in
+    match swap_exact_tokens_for_tokens chain ctx state param with
+    | Err _ => False (* do nothing *)
+    | Ok next_state =>
+        let next_reserves := get_reserves tokenA tokenB next_state in
+        initial_reserves <> next_reserves
+    end.
+    Proof.
+        intros chain ctx tokenA tokenB to param h1 h2.
+        unfold get_reserves.
+        unfold swap_exact_tokens_for_eth. unfold real_swap.
+        simpl. discriminate.
+    Qed.
 
   (* The first step in proving that a frontrunning attack is possible.
      An actor would receive less amount of tokens when swapping after someone else has made the same swap *)
