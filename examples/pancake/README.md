@@ -8,7 +8,7 @@ To prove the existence of possible Front-running attacks, we have converted the 
 
 The implemented model is accompanied by several lemmas/proofs that shows the model's functional correctness and ultimately that a front-running attack is possible.
 
-All code (specification and proofs) are currently in [Pancake.V](https://github.com/Mallingo/ConCert/blob/master/examples/pancake/Pancake.v). Will be refactored at a later stage.
+All code (specification and proofs) are currently in [Pancake.V](https://github.com/Mallingo/ConCert/blob/master/examples/pancake/Pancake.v).
 
 ### Limitations
 - Allows for creation of a single AMM pair (in the same context).
