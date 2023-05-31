@@ -13,8 +13,3 @@ All code (specification and proofs) are currently in [Pancake.V](https://github.
 ### Limitations
 - Allows for creation of a single AMM pair (in the same context).
 - Code extraction not supported
-
-### Work in Progress
-
-- Find additional lemmas/proofs to show correctness of model.
-- Implement possible mitigation strategies.
