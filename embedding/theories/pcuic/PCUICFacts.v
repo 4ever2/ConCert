@@ -43,7 +43,7 @@ Definition expr_elim_case (P : expr -> Type)
            (Hty     : forall t : type, P (eTy t)) :
   forall e : expr, P e.
 Proof.
-  refine (fix ind (e : expr) := _ ).
+  refine (fix ind (e : expr) := _).
   destruct e.
   + apply Hrel.
   + apply Hvar.
@@ -332,7 +332,7 @@ Section Values.
       rewrite forallb_map in H1. unfold compose in H1; simpl in H1.
       rewrite Forall_forall in H.
       rewrite PeanoNat.Nat.add_assoc.
-      assert ( HH : Forall (fun x : pat * expr =>
+      assert (HH : Forall (fun x : pat * expr =>
                               is_true (iclosed_n (#|pVars (fst x)| + k)
                                       ((snd x).[ ρ] (#|pVars (fst x)| + k)))) l) by
            now apply forallb_Forall.
@@ -359,7 +359,7 @@ Section Values.
 
   Lemma of_value_closed Σ v n :
     val_ok Σ v (* this ensures that closures contain closed expressions *) ->
-    iclosed_n n (of_val_i v ) = true.
+    iclosed_n n (of_val_i v) = true.
   Proof.
     revert n.
     induction v using val_elim_full; intros n1 Hv.
@@ -496,7 +496,7 @@ Section Values.
   Proof.
     split; revert dependent i; revert dependent n;
     induction ρ; intros i1 n1 H; tryfalse; simpl in *;
-      destruct a0; destruct ( s =? key); inversion H; eauto.
+      destruct a0; destruct (s =? key); inversion H; eauto.
   Qed.
 
   Lemma lookup_ind_nth_error (ρ : env A) i a key :
@@ -573,7 +573,7 @@ Section Values.
     destruct (p (fst p0)); simpl in *; eauto; tryfalse.
   Qed.
 
-  Lemma find_some_fst_map_snd {p} {f : A * B -> C} (l: list (A * B)) (v1 : A * B):
+  Lemma find_some_fst_map_snd {p} {f : A * B -> C} (l: list (A * B)) (v1 : A * B) :
     find (p ∘ fst) l = Some v1 ->
      {v2 | find (p ∘ fst) (map (fun x => (fst x, f x)) l) = Some v2
               × fst v1 = fst v2
@@ -586,7 +586,7 @@ Section Values.
       destruct (p ab.1); inversion Hfnd; subst; simpl in *; eauto.
   Qed.
 
-  Lemma find_some_fst {p} (l1: list (A * B)) ( l2 : list (A * C)) v1:
+  Lemma find_some_fst {p} (l1: list (A * B)) (l2 : list (A * C)) v1:
     map fst l1 = map fst l2 ->
     find (p ∘ fst) l1 = Some v1 ->
     exists v2, find (p ∘ fst) l2 = Some v2

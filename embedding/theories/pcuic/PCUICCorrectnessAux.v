@@ -1,6 +1,7 @@
 (** * Auxiliary lemmas for the soundness proof. *)
 From MetaCoq.Utils Require Import MCList.
 From MetaCoq.Utils Require Import utils.
+From MetaCoq.Common Require Import config.
 From MetaCoq.PCUIC Require Import PCUICAst.
 From MetaCoq.PCUIC Require Import PCUICAstUtils.
 From MetaCoq.PCUIC Require Import PCUICLiftSubst.
@@ -21,6 +22,7 @@ From ConCert.Embedding Require Import EvalE.
 From ConCert.Embedding Require Import PCUICFacts.
 From ConCert.Embedding Require Import PCUICTranslate.
 From ConCert.Embedding Require Import Wf.
+From ConCert.Embedding Require Import Utils.
 
 
 Notation "'eval' ( n , Σ , ρ , e )" := (expr_eval_i Σ n ρ e) (at level 100).
@@ -57,11 +59,11 @@ Notation "Σ |- t1 ⇓ t2 " := (PcbvCurr.eval Σ t1 t2) (at level 50).
     does if for inductives [trans_global_dec] and we use it precisely to unquote
     inductives.But it returns [mutual_inductive_entry] and we need
     [mutual_inductive_body] *)
-Definition genv_sync (Σ1 : list global_dec) (Σ2 : PCUICEnvironment.global_env ) :=
+Definition genv_sync (Σ1 : list global_dec) (Σ2 : PCUICEnvironment.global_env) :=
   forall ind_name c nparams i tys,
     resolve_constr Σ1 ind_name c = Some (nparams, i, tys) ->
     { x | let '(mib, oib, cb) := x in
-          declared_constructor Σ2 (mkInd (kername_of_string ind_name) 0, i) mib oib cb
+          declared_constructor_gen (lookup_env Σ2) (mkInd (kername_of_string ind_name) 0, i) mib oib cb
           /\ nparams = ind_npars mib /\ #|tys| = context_assumptions (cstr_args cb) (* same arities *)
     }.
 
@@ -175,11 +177,8 @@ Proof.
   + rewrite map_length. cbn in *.
     subst. rewrite H1 in *.
     econstructor; eauto.
-    Unshelve. admit. (* TODOM *)
-    (* unshelve eapply declared_constructor_to_gen; eauto. *)
-    admit.
   + now apply All_map.
-Admitted.
+Qed.
 
 Open Scope bool.
 
@@ -904,7 +903,7 @@ Proof.
              (p2 := (fun x => pName (fst x) =? s)%string)
              (f := fun x => ((fst x), (snd x){#|pVars (fst x)|+n1 := t⟦ e0 ⟧ Σ})) in Hfnd; auto.
          rewrite map_map in Hfnd. simpl in Hfnd. unfold fun_prod,id. simpl.
-         assert ( Hmap :
+         assert (Hmap :
                     (map (fun x => (id (fst x), (t⟦snd x⟧ Σ) {#|pVars (fst x)|+n1 := t⟦e0⟧ Σ})) l) =
                     (map (fun x => (fst x, t⟦(snd x) .[[(nm,e0)]](#|pVars (fst x)| + n1) ⟧ Σ)) l)).
          { eapply forall_map_spec'. apply H. intros a Hin' Ha. f_equal.
@@ -1574,7 +1573,7 @@ Proof.
       destruct (eval_type_i 0 ρ _) eqn:Hty; tryfalse; simpl in *.
       unfold is_true; repeat rewrite Bool.andb_true_iff in *.
       assert (ty_expr_env_ok (exprs (ρ # [e1 ~> v])) 0 e3 = true) by
-             (destruct Hc as [[? ?] ?]; repeat split; eauto with hints; eapply IHn; eauto ).
+             (destruct Hc as [[? ?] ?]; repeat split; eauto with hints; eapply IHn; eauto).
       simpl in H. destruct Hc as [[? ?] ?].
       repeat split.
       ** eapply IHn; eauto.

@@ -21,6 +21,7 @@ From Coq Require Import List. Import ListNotations.
 From ConCert.Execution Require Import Blockchain.
 From ConCert.Execution Require Import ResultMonad.
 From ConCert.Execution Require Import ContractCommon.
+From ConCert.Execution Require Import ContractProperties.
 From ConCert.Examples.Escrow Require Import Escrow.
 From ConCert.Utils Require Import Automation.
 From ConCert.Utils Require Import Extras.
@@ -31,14 +32,10 @@ Section Theories.
   Context `{Base : ChainBase}.
   Open Scope Z.
 
-  Lemma no_self_calls bstate caddr :
-    reachable bstate ->
-    env_contracts bstate caddr = Some (Escrow.contract : WeakContract) ->
-    Forall (fun abody => match abody with
-                         | act_transfer to _ => (to =? caddr)%address = false
-                         | _ => False
-                         end) (outgoing_acts bstate caddr).
+  Lemma escrow_nonrecursive :
+    NonRecursive Escrow.contract.
   Proof.
+    unfold NonRecursive.
     contract_induction; intros; cbn in *; auto.
     - now inversion IH.
     - apply Forall_app; split; try tauto.
@@ -71,16 +68,11 @@ Section Theories.
           apply address_eq_ne; auto.
     - inversion_clear IH as [|? ? head_not_me tail_not_me].
       apply Forall_app; split; auto; clear tail_not_me.
-      destruct head; try contradiction.
-      destruct action_facts as [? [? ?]].
-      destruct_address_eq; congruence.
+      destruct head; try contradiction;
+        destruct action_facts as [? [? ?]];
+        destruct_address_eq; congruence.
     - now rewrite <- perm.
-    - instantiate (DeployFacts := fun _ _ => True).
-      instantiate (CallFacts := fun _ _ _ _ _ => True).
-      instantiate (AddBlockFacts := fun _ _ _ _ _ _ => True).
-      unset_all; subst; cbn in *.
-      destruct_chain_step; auto.
-      destruct_action_eval; auto.
+    - solve_facts.
   Qed.
 
   Definition txs_to (to : Address) (txs : list Tx) : list Tx :=
@@ -179,7 +171,7 @@ Section Theories.
 
       | withdrawals =>
         buyer_confirmed inc_calls buyer_addr = true /\
-        (exists origin, filter (fun c => negb (call_amount c =? 0)%Z ) inc_calls =
+        (exists origin, filter (fun c => negb (call_amount c =? 0)%Z) inc_calls =
         [build_call_info origin buyer_addr (2 * item_worth) (Some commit_money)]) /\
         money_to trace caddr seller_addr + seller_withdrawable cstate = 3 * item_worth /\
         money_to trace caddr buyer_addr + buyer_withdrawable cstate = 1 * item_worth
@@ -197,7 +189,7 @@ Section Theories.
       end.
   Proof.
     unfold money_to.
-    contract_induction; cbn in *; intros.
+    nonrecursive_contract_induction; cbn in *; intros.
     - (* New block *)
       auto.
     - (* Deployment *)
@@ -395,9 +387,6 @@ Section Theories.
               lia.
       + (* None *)
         congruence.
-    - (* Self call *)
-      instantiate (CallFacts := fun _ ctx _ _ _ => ctx_from ctx <> ctx_contract_address ctx);
-        subst CallFacts; cbn in *; congruence.
     - (* Permuting queue *)
       do 5 (split; try tauto).
       split.
@@ -410,19 +399,8 @@ Section Theories.
         * now rewrite <- perm.
         * destruct IH as [_ [_ [_ [_ [_ [_ [IH | IH]]]]]]];
             [left|right]; rewrite <- perm; auto.
+    - apply escrow_nonrecursive.
     - solve_facts.
-      apply trace_reachable in from_reachable.
-      pose proof (no_self_calls bstate_from to_addr ltac:(assumption) ltac:(assumption))
-           as all.
-      unfold outgoing_acts in *.
-      rewrite queue_prev in *.
-      cbn in all.
-      destruct_address_eq; cbn in *; auto.
-      inversion_clear all as [|? ? hd _].
-      destruct msg.
-      + contradiction.
-      + rewrite address_eq_refl in hd.
-        congruence.
   Qed.
 
   Definition net_balance_effect

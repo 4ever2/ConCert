@@ -234,7 +234,7 @@ Definition is_type_val (v : val) : bool :=
  | _ => false
 end.
 
-Fixpoint valid_ty_env (n : nat) (ρ : env val) (ty : type): bool :=
+Fixpoint valid_ty_env (n : nat) (ρ : env val) (ty : type) : bool :=
   match ty with
   | tyInd x => true
   | tyForall v ty0 => valid_ty_env (S n) ρ ty0

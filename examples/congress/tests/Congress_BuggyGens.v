@@ -89,7 +89,7 @@ Definition try_gNewOwner state calling_addr contract_addr : GOpt Address :=
     (gCongressMember_without_caller state calling_addr contract_addr).
 
 Definition validate_addr (a : Address) : GOpt (address_is_contract a = false) :=
-  match (Bool.bool_dec (address_is_contract a) true ) with
+  match (Bool.bool_dec (address_is_contract a) true) with
   | left _ => returnGen None
   | right p => returnGenSome (Bool.not_true_is_false _ p)
   end.

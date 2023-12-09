@@ -5,6 +5,7 @@ From ConCert.Embedding Require Import Notations.
 From ConCert.Embedding Require Import PCUICTranslate.
 From ConCert.Embedding Require Import TranslationUtils.
 From ConCert.Embedding Require Import Prelude.
+From ConCert.Embedding Require Import Utils.
 From ConCert.Embedding.Extraction Require Import Liquidity.
 From ConCert.Embedding.Extraction Require Import PreludeExt.
 From ConCert.Embedding.Extraction Require Import SimpleBlockchainExt.
@@ -135,7 +136,7 @@ Module CrowdfundingContract.
                             (in custom expr at level 0).
 
     Notation "[ x ]" := [| Cons SActionBody {x} #Nil |]
-                          ( in custom expr at level 0,
+                           (in custom expr at level 0,
                             x custom expr at level 1).
 
 
@@ -146,7 +147,7 @@ Module CrowdfundingContract.
 
     (** We make the remapping to the Liquidity primitives easier by using this abbreviation for the lookup, since in Liquidity the arguments are swapped *)
     Definition lookup_map' k m := PreludeExt.Maps.lookup_map m k.
-    Notation "'findm' a b" := [| {eConst (to_string_name <% lookup_map' %> )} {a} {b} |]
+    Notation "'findm' a b" := [| {eConst (to_string_name <% lookup_map' %>)} {a} {b} |]
           (in custom expr at level 0,
               a custom expr at level 1,
               b custom expr at level 1).

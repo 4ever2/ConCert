@@ -419,7 +419,7 @@ Lemma empty_queue : forall bstate (P : ChainState -> Prop),
   P bstate ->
   (forall (bstate bstate' : ChainState) act acts, reachable bstate -> reachable bstate' -> P bstate ->
     chain_state_queue bstate = act :: acts -> chain_state_queue bstate' = acts ->
-    (inhabited (ActionEvaluation bstate act bstate' []) \/ EnvironmentEquiv bstate bstate') -> P bstate' ) ->
+    (inhabited (ActionEvaluation bstate act bstate' []) \/ EnvironmentEquiv bstate bstate') -> P bstate') ->
     exists bstate', reachable_through bstate bstate' /\ P bstate' /\ (chain_state_queue bstate') = [].
 Proof.
   intros * reach [acts_from_account no_new_acts].

@@ -2091,7 +2091,7 @@ Local Ltac generalize_contract_statement_aux
    end
   | post bstate caddr trace is_deployed Setup Msg State Error P ].
 
-Local Ltac generalize_contract_statement_with_post post :=
+Ltac generalize_contract_statement_with_post post :=
   intros;
   match goal with
   | [bstate : ChainState, caddr : Address |- _] =>

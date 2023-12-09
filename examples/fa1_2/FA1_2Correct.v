@@ -259,7 +259,7 @@ Section Theories.
     - now contract_simpl.
     - contract_simpl.
       rewrite !FMap.find_update_eq.
-      now specialize (maybe_cases ) as [[-> ?H] | [-> ?H]].
+      now specialize (maybe_cases) as [[-> ?H] | [-> ?H]].
   Qed.
 
   (** [try_transfer] removes empty entries from balance map *)
@@ -274,12 +274,12 @@ Section Theories.
     rewrite N.ltb_ge in *.
     destruct (address_eqb_spec param.(from) param.(to)) as [<-|]; auto.
     - rewrite !FMap.find_update_eq.
-      now specialize (maybe_cases ) as [[-> ?H] | [-> ?H]].
+      now specialize (maybe_cases) as [[-> ?H] | [-> ?H]].
     - rewrite !FMap.find_update_ne by auto.
       rewrite !FMap.find_update_eq.
       rewrite !FMap.find_update_ne with (map := prev_state.(tokens)) by auto.
-      specialize (maybe_cases ) as [[-> ?H] | [-> ?H]];
-      now specialize (maybe_cases ) as [[-> ?H] | [-> ?H]].
+      specialize (maybe_cases) as [[-> ?H] | [-> ?H]];
+      now specialize (maybe_cases) as [[-> ?H] | [-> ?H]].
   Qed.
 
   (** If the requirements are met then receive on transfer msg must succeed and
@@ -396,7 +396,7 @@ Section Theories.
     contract_simpl.
     cbn.
     rewrite FMap.find_update_eq.
-    now specialize (maybe_cases ) as [[-> ?H] | [-> ?H]].
+    now specialize (maybe_cases) as [[-> ?H] | [-> ?H]].
   Qed.
 
   (** If the requirements are met then receive on approve msg must succeed and

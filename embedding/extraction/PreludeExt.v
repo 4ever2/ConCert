@@ -26,8 +26,8 @@ Open Scope nat.
 (** ** Wrappers for some primitive types *)
 
 MetaCoq Run
-        ( mp_ <- tmCurrentModPath tt ;;
-          let mp := (PCUICTranslate.string_of_modpath mp_ ++ "@")%string in
+         (mp_ <- tmCurrentModPath tt ;;
+          let mp := (Utils.string_of_modpath mp_ ++ "@")%string in
           mkNames mp ["address"; "time"; "ContractAddr";
                       "UserAddr"; "Time" ; "Money" ] "_coq").
 
@@ -104,7 +104,7 @@ Notation "'acc_balance' st" :=
 Notation "'mkCallCtx' now sender sent_am bal " :=
   [| Pair time (address × (money × money)) {now}
           (Pair address (money × money) {sender}
-                (Pair money money {sent_am} {bal} )) |]
+                (Pair money money {sent_am} {bal})) |]
     (in custom expr at level 0).
 
 (** A simple representation of the call context *)
@@ -210,8 +210,8 @@ Module Maps.
 
 
   MetaCoq Run
-          ( mp_ <- tmCurrentModPath tt ;;
-            let mp := (PCUICTranslate.string_of_modpath mp_ ++ "@")%string in
+           (mp_ <- tmCurrentModPath tt ;;
+            let mp := (Utils.string_of_modpath mp_ ++ "@")%string in
             mkNames mp ["addr_map" ] "_coq").
 
   Definition addr_map_acorn :=

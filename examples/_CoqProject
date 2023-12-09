@@ -79,6 +79,8 @@ iTokenBuggy/iTokenBuggyTests.v
 cis1/CIS1Spec.v
 cis1/CIS1Utils.v
 cis1/Cis1wccd.v
+cis1/HacspecCis1.v
+cis1/HacspecWccd.v
 
 -Q stackInterpreter ConCert.Examples.StackInterpreter
 stackInterpreter/StackInterpreter.v
@@ -147,3 +149,21 @@ piggybank/PiggyBankCorrect.v
 piggybank/PiggyBankExtractLIGO.v
 piggybank/PiggyBankExtractLiquidity.v
 piggybank/PiggyBankExtractRust.v
+piggybank/HacspecPiggyBank.v
+piggybank/HacspecPiggyBankTest.v
+piggybank/PiggyBankEq.v
+
+-Q hacspec ConCert.Examples.Hacspec
+hacspec/HacspecConcordium.v
+hacspec/HacspecLib.v
+hacspec/MachineIntegers.v
+hacspec/QuickChickLib.v
+hacspec/ConCertLib.v
+hacspec/ConcordiumImpls.v
+hacspec/ConcordiumPrims.v
+hacspec/ConcordiumTraits.v
+hacspec/ConcordiumTypes.v
+
+-Q auction ConCert.Examples.Auction
+auction/HacspecAuction.v
+auction/HacspecAuctionTest.v
