@@ -32,6 +32,44 @@ Record ValidChain (chain : Chain) := {
   finalized_height_valid : (chain.(finalized_height) < S chain.(chain_height))%nat;
 }.
 
+Theorem origin_user_address : forall bstate,
+  reachable bstate ->
+  List.Forall (fun act => address_is_contract act.(act_origin) = false) (chain_state_queue bstate).
+Proof.
+  intros * [trace].
+  remember empty_state.
+  induction trace; subst; try auto.
+  destruct_chain_step.
+  - clear env_eq.
+    apply List.Forall_forall.
+    rewrite List.Forall_forall in origin_correct.
+    rewrite List.Forall_forall in acts_from_accs.
+    intros x Hin.
+    specialize (origin_correct x Hin).
+    specialize (acts_from_accs x Hin).
+    unfold act_is_from_account, act_origin_is_eq_from in *.
+    destruct_address_eq; try discriminate.
+    now rewrite e.
+  - rewrite queue_prev in *.
+    rewrite queue_new in *.
+    specialize (IHtrace eq_refl).
+    apply list.Forall_cons in IHtrace as [Hact IHtrace].
+    apply All_Forall.app_Forall; auto.
+    destruct_action_eval; try (subst; apply List.Forall_nil).
+    + subst.
+      apply All_Forall.Forall_map.
+      cbn in *.
+      rewrite Hact.
+      apply List.Forall_forall.
+      reflexivity.
+  - rewrite queue_prev in *.
+    rewrite queue_new in *.
+    specialize (IHtrace eq_refl).
+    apply list.Forall_cons in IHtrace as [Hact IHtrace].
+    assumption.
+  - eapply Extras.forall_respects_permutation; eauto.
+Qed.
+
 Definition context_valid' {from to : ChainState} (trace : ChainTrace from to) : Prop.
 Proof.
   induction trace.
@@ -63,14 +101,24 @@ Proof.
   - (* init case *)
     cbn.
     constructor.
-    + admit.
+    + subst.
+      specialize (origin_user_address mid) as H.
+      rewrite queue_prev in *.
+      apply list.Forall_cons in H as [Hact _].
+      * assumption.
+      * now apply trace_reachable.
     + assumption.
     + cbn. lia.
     + cbn. lia.
   - (* receive case *)
     cbn.
     constructor.
-    + admit.
+    + subst.
+      specialize (origin_user_address mid) as H.
+      rewrite queue_prev in *.
+      apply list.Forall_cons in H as [Hact _].
+      * assumption.
+      * now apply trace_reachable.
     + apply contract_addr_format in deployed.
       assumption.
       subst. now apply trace_reachable.
@@ -81,7 +129,25 @@ Proof.
       specialize (account_balance_nonnegative _ to_addr (trace_reachable trace)).
       lia.
     + cbn. lia.
-Admitted.
+Qed.
+
+Lemma current_slot_chain_height bstate :
+  reachable bstate ->
+  (bstate.(chain_height) <= bstate.(current_slot))%nat.
+Proof.
+  intros [trace].
+  remember empty_state.
+  induction trace as [ | Heq from to trace IH step ]; subst.
+  - auto.
+  - destruct_chain_step;
+    try destruct_action_eval;
+    rewrite_environment_equiv;
+    auto.
+    + inversion valid_header. cbn.
+      rewrite valid_height.
+      specialize (IH eq_refl).
+      lia.
+Qed.
 
 Definition chain_valid' {from to : ChainState} (trace : ChainTrace from to) : Prop.
 Proof.
@@ -103,18 +169,30 @@ Proof.
     + apply IHtrace.
 Defined.
 
+From ConCert.Execution Require Import BuildUtils.
 Lemma chain_valid : forall bstate (trace : ChainTrace empty_state bstate),
   chain_valid' trace.
 Proof.
   intros.
+  remember empty_state.
   induction trace; try apply I.
-  destruct_chain_step; try apply IHtrace.
+  destruct_chain_step; try now apply IHtrace.
   destruct_action_eval; try apply I.
   - (* init case *)
-    admit.
+    cbn. subst.
+    constructor.
+    + apply current_slot_chain_height.
+      now apply trace_reachable.
+    + apply finalized_heigh_chain_height.
+      now apply trace_reachable.
   - (* receive case *)
-    admit.
-Admitted.
+    cbn. subst.
+    constructor.
+    + apply current_slot_chain_height.
+      now apply trace_reachable.
+    + apply finalized_heigh_chain_height.
+      now apply trace_reachable.
+Qed.
   
 
 
@@ -203,22 +281,27 @@ Record StateEquiv (s1 : HacspecPiggyBank.State) (s2 : PiggyBank.State) : Prop :=
 End ContractTypeEquiv.
 
 Section InitEquivalence.
+  Context {chain : Chain}.
+  Context {ctx : ContractCallContext}.
+  Context `{ValidChain chain}.
+  Context `{ValidContext ctx}.
+
   (* Show equivalence of the init functions *)
-  Theorem init_equiv_err : forall chain ctx,
+  Theorem init_equiv_err :
     isErr (HacspecPiggyBank.PiggyBank_State chain ctx tt) =
     isErr (PiggyBank.init chain ctx tt).
   Proof.
     now intros.
   Qed.
 
-  Theorem init_equiv_ok : forall chain ctx,
+  Theorem init_equiv_ok :
     isOk (HacspecPiggyBank.PiggyBank_State chain ctx tt) =
     isOk (PiggyBank.init chain ctx tt).
   Proof.
     now intros.
   Qed.
 
-  Theorem init_equiv : forall chain ctx s1 s2,
+  Theorem init_equiv : forall s1 s2,
     HacspecPiggyBank.PiggyBank_State chain ctx tt = Ok s1 ->
     PiggyBank.init chain ctx tt = Ok s2 ->
     StateEquiv s1 s2.
@@ -234,15 +317,19 @@ Section InitEquivalence.
 End InitEquivalence.
 
 Section ReceiveEquivalence.
+  Context {chain : Chain}.
+  Context {ctx : ContractCallContext}.
+  Context `{ValidChain chain}.
+  Context `{ValidContext ctx}.
+
   (* Show equivlance for receive functions *)
-  Lemma receive_equiv_err : forall chain ctx s1 s2 msg1 msg2,
-    0 <= (ctx_amount ctx) ->
+  Lemma receive_equiv_err : forall s1 s2 msg1 msg2,
     StateEquiv s1 s2 ->
     MsgEquiv msg1 msg2 ->
     isErr (HacspecPiggyBank.PiggyBank_receive chain ctx s1 msg1) =
     isErr (PiggyBank.receive chain ctx s2 msg2).
   Proof.
-    intros * amount_pos Hstate_equiv Hmsg_equiv.
+    intros * Hstate_equiv Hmsg_equiv.
     destruct msg1; destruct msg2;
       try reflexivity;
       inversion_clear Hmsg_equiv;
@@ -254,6 +341,7 @@ Section ReceiveEquivalence.
     cbn in piggyState_eq0.
     destruct m; cbn.
     - (* m = insert *)
+      destruct ValidContext0 as [_ _ _ amount_pos].  
       apply Z.ltb_ge in amount_pos.
       rewrite amount_pos. cbn.
       unfold PiggyBank.is_smashed.
@@ -290,22 +378,19 @@ Section ReceiveEquivalence.
       destruct s1; try reflexivity.
   Qed.
 
-  Lemma receive_equiv_ok : forall chain ctx s1 s2 msg1 msg2,
-    0 <= (ctx_amount ctx) ->
+  Lemma receive_equiv_ok : forall s1 s2 msg1 msg2,
     StateEquiv s1 s2 ->
     MsgEquiv msg1 msg2 ->
     isOk (HacspecPiggyBank.PiggyBank_receive chain ctx s1 msg1) =
     isOk (PiggyBank.receive chain ctx s2 msg2).
   Proof.
-    intros * amount_pos Hstate_equiv Hmsg_equiv.
+    intros * Hstate_equiv Hmsg_equiv.
     eapply receive_equiv_err in Hmsg_equiv; eauto.
-    Unshelve. 2: eauto.
     destruct HacspecPiggyBank.PiggyBank_receive;
       destruct PiggyBank.receive; auto.
   Qed.
 
-  Lemma receive_equiv : forall chain ctx s1 s2 msg1 msg2 ns1 ns2 acts1 acts2,
-    0 <= (ctx_amount ctx) ->
+  Lemma receive_equiv : forall s1 s2 msg1 msg2 ns1 ns2 acts1 acts2,
     0 <= (PiggyBank.balance s2) ->
     (0 <= (PiggyBank.balance s2 + ctx_amount ctx) < @MachineIntegers.modulus MachineIntegers.WORDSIZE64) ->
     StateEquiv s1 s2 ->
@@ -315,7 +400,8 @@ Section ReceiveEquivalence.
       StateEquiv ns1 ns2 /\
       acts1 = acts2.
   Proof.
-    intros * amount_pos balance_pos Hoverflow Hstate_equiv Hmsg_equiv Hreceive1 Hreceive2.
+    intros * balance_pos Hoverflow Hstate_equiv Hmsg_equiv Hreceive1 Hreceive2.
+    destruct ValidContext0 as [_ _ _ amount_pos].
     destruct msg1; destruct msg2;
       try reflexivity;
       inversion_clear Hmsg_equiv;
