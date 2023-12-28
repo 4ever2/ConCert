@@ -149,6 +149,8 @@ piggybank/PiggyBankCorrect.v
 piggybank/PiggyBankExtractLIGO.v
 piggybank/PiggyBankExtractLiquidity.v
 piggybank/PiggyBankExtractRust.v
+piggybank/HacspecPiggyBank.v
+piggybank/HacspecPiggyBankTest.v
 
 -Q hacspec ConCert.Examples.Hacspec
 hacspec/HacspecConcordium.v
