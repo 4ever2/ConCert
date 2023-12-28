@@ -1060,3 +1060,24 @@ Ltac deploy_contract contract_ :=
        end
        ]
   end.
+
+
+
+
+
+
+
+Open Scope Z_scope.
+
+Record ValidContext (ctx : ContractCallContext) := {
+  ctx_origin_valid : address_is_contract ctx.(ctx_origin) = false;
+  ctx_contract_address_valid : address_is_contract ctx.(ctx_contract_address) = true;
+  ctx_contract_balance_valid : 0 <= ctx.(ctx_contract_balance);
+  ctx_amount_valid : 0 <= ctx.(ctx_amount);
+}.
+
+Record ValidChain (chain : Chain) := {
+  chain_height_valid : (chain.(chain_height) <= chain.(current_slot))%nat;
+  finalized_height_valid : (chain.(finalized_height) < S chain.(chain_height))%nat;
+}.
+
