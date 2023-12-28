@@ -11,6 +11,7 @@ From ConCert.Execution Require Import BuildUtils.
 From ConCert.Execution Require Import Containers.
 From ConCert.Execution Require Import Serializable.
 From ConCert.Execution Require Import ContractCommon.
+From ConCert.Execution Require Import ContractProperties.
 From ConCert.Execution Require Import ResultMonad.
 From ConCert.Examples.BAT Require Import BATCommon.
 From ConCert.Examples.BAT Require Import BATFixed.
@@ -1318,15 +1319,10 @@ Section Theories.
   (** ** BAToken outgoing acts facts *)
 
   (** BAToken never calls itself *)
-  Lemma bat_no_self_calls bstate caddr :
-    reachable bstate ->
-    env_contracts bstate caddr = Some (contract : WeakContract) ->
-    Forall (fun act_body =>
-      match act_body with
-      | act_transfer to _ => (to =? caddr)%address = false
-      | _ => False
-      end) (outgoing_acts bstate caddr).
+  Lemma bat_nonrecursive :
+    NonRecursive contract.
   Proof.
+    unfold NonRecursive.
     contract_induction; intros; auto.
     - now inversion IH.
     - apply Forall_app; split; auto.
@@ -1344,8 +1340,7 @@ Section Theories.
     - inversion_clear IH as [|? ? head_not_me tail_not_me].
       apply Forall_app; split; auto.
       clear tail_not_me.
-      destruct head; try contradiction.
-      destruct action_facts as [? _].
+      destruct head; try contradiction;
       now destruct_address_eq.
     - now rewrite <- perm.
     - solve_facts.
@@ -1353,32 +1348,7 @@ Section Theories.
       now destruct_hyps.
       now constructor.
   Qed.
-
-  Lemma bat_no_self_calls' : forall bstate origin from_addr to_addr amount msg acts,
-    reachable bstate ->
-    env_contracts bstate to_addr = Some (contract : WeakContract) ->
-    chain_state_queue bstate = {|
-      act_origin := origin;
-      act_from := from_addr;
-      act_body :=
-        match msg with
-        | Some msg => act_call to_addr amount msg
-        | None => act_transfer to_addr amount
-        end
-    |} :: acts ->
-    from_addr <> to_addr.
-  Proof.
-    intros * reach deployed queue.
-    apply bat_no_self_calls in deployed as no_self_calls; auto.
-    unfold outgoing_acts in no_self_calls.
-    rewrite queue in no_self_calls.
-    cbn in no_self_calls.
-    destruct_address_eq; auto.
-    inversion_clear no_self_calls as [|? ? hd _].
-    destruct msg.
-    * congruence.
-    * now rewrite address_eq_refl in hd.
-  Qed.
+  Local Hint Resolve bat_nonrecursive : core.
 
   (** BAToken only produces transfer acts *)
   Lemma outgoing_acts_are_transfers : forall bstate caddr,
@@ -1410,12 +1380,10 @@ Section Theories.
     env_contracts bstate caddr = Some (contract : WeakContract) ->
     Forall (fun act_body => 0 <= act_body_amount act_body)%Z (outgoing_acts bstate caddr).
   Proof.
-    contract_induction; intros; auto.
+    nonrecursive_contract_induction; intros; auto.
     - now inversion IH.
     - instantiate (CallFacts := fun _ ctx _ _ _ =>
-        (0 <= (ctx_contract_balance ctx))%Z /\
-        ctx_from ctx <> ctx_contract_address ctx).
-      destruct facts as (contract_balance_positive & _).
+        (0 <= (ctx_contract_balance ctx))%Z).
       destruct_message;
         (* m = EIP msg *)
         try now (apply eip20_new_acts_correct in receive_some; subst).
@@ -1431,18 +1399,13 @@ Section Theories.
         subst.
         constructor; auto.
         apply N2Z.is_nonneg.
-    - now destruct facts.
     - eapply forall_respects_permutation; eauto.
     - solve_facts.
-      split.
-      + (* Prove call fact: 0 <= ctx_contract_balance ctx *)
-        destruct_address_eq; subst; try easy.
-        * lia.
-        * apply Z.add_nonneg_nonneg; try lia.
-          now apply Z.ge_le, account_balance_nonnegative.
-      + (* Prove call fact: ctx_from ctx <> ctx_contract_address ctx *)
-        eapply bat_no_self_calls'; eauto.
-        now constructor.
+      (* Prove call fact: 0 <= ctx_contract_balance ctx *)
+      destruct_address_eq; subst; try easy.
+      * lia.
+      * apply Z.add_nonneg_nonneg; try lia.
+        now apply Z.ge_le, account_balance_nonnegative.
   Qed.
 
 
@@ -1502,14 +1465,13 @@ Section Theories.
       contract_state bstate caddr = Some cstate
       /\ initSupply cstate <= total_supply cstate.
   Proof.
-    contract_induction; intros; auto.
+    nonrecursive_contract_induction; intros; auto.
     - cbn in init_some.
       now contract_simpl.
     - instantiate (CallFacts := fun _ ctx state _ _ =>
         total_supply state = sum_balances state /\
-        (isFinalized state = false -> FMap.find state.(batFundDeposit) (balances state) = Some state.(initSupply)) /\
-        ctx_from ctx <> ctx_contract_address ctx).
-      destruct facts as (sum_balances_eq_total_supply & no_init_supply_refund & _).
+        (isFinalized state = false -> FMap.find state.(batFundDeposit) (balances state) = Some state.(initSupply))).
+      destruct facts as (sum_balances_eq_total_supply & no_init_supply_refund).
       destruct_message;
         try apply eip_only_changes_token_state in receive_some as init_supply_unchanged.
       + apply try_transfer_preserves_total_supply in receive_some as supply_unchanged.
@@ -1531,7 +1493,6 @@ Section Theories.
         apply N.le_trans with (m := with_default 0 (FMap.find prev_state.(batFundDeposit) (balances prev_state))).
         * now rewrite no_init_supply_refund.
         * now apply balance_le_sum_balances_ne.
-    - now destruct facts.
     - solve_facts.
       destruct_and_split.
       + now apply sum_balances_eq_total_supply in deployed0 as
@@ -1541,8 +1502,6 @@ Section Theories.
         rewrite deployed_cstate' in deployed_state0.
         inversion deployed_state0.
         now subst cstate'.
-        now constructor.
-      + eapply bat_no_self_calls'; eauto.
         now constructor.
   Qed.
 
@@ -1559,7 +1518,7 @@ Section Theories.
           ((current_slot bstate <= fundingEnd cstate)%nat \/ tokenCreationMin cstate <= total_supply cstate) ->
           outgoing_acts bstate caddr = []).
   Proof.
-    contract_induction; intros; auto; try rename H into not_finalized.
+    nonrecursive_contract_induction; intros; auto; try rename H into not_finalized.
     - now specialize (IH not_finalized).
     - destruct_message;
         try (
@@ -1590,12 +1549,9 @@ Section Theories.
         * now rewrite <- finalized_unchanged in funding_not_over.
         * rewrite <- new_supply, <- finalized_unchanged in goal_hit.
           now cbn in goal_hit.
-    - now instantiate (CallFacts := fun _ ctx _ _ _ => ctx_from ctx <> ctx_contract_address ctx).
     - apply IH in not_finalized. subst.
       now apply Permutation.Permutation_nil in perm.
     - solve_facts.
-      eapply bat_no_self_calls'; eauto.
-      now constructor.
   Qed.
 
 
@@ -1611,7 +1567,7 @@ Section Theories.
           isFinalized cstate = false ->
           with_default 0 (FMap.find addr (balances cstate)) mod tokenExchangeRate cstate = 0).
   Proof.
-    contract_induction; intros; auto;
+    nonrecursive_contract_induction; intros; auto;
       try rename H into addr_not_batfund;
       try rename H0 into not_finalized.
     - cbn in init_some.
@@ -1619,9 +1575,7 @@ Section Theories.
       inversion init_some. subst. cbn in *.
       setoid_rewrite FMap.find_add_ne; auto.
     - instantiate (CallFacts := fun _ ctx state _ _ =>
-        tokenExchangeRate state <> 0 /\
-        ctx_from ctx <> ctx_contract_address ctx).
-      destruct facts as (exchange_rate_nonzero & _).
+        tokenExchangeRate state <> 0).
       unfold Blockchain.receive in receive_some.
       cbn in receive_some.
       destruct msg. destruct m.
@@ -1648,15 +1602,11 @@ Section Theories.
           erewrite try_refund_balance_correct; eauto.
         * erewrite <- try_refund_preserves_other_balances; eauto.
       + now contract_simpl.
-    - now destruct facts.
     - solve_facts.
-      split.
-      * edestruct deployed_implies_constants_valid as
-          (cstate' & deployed_state' & _ & _ & _ & exchange_rate_nonzero & _); eauto.
-        now constructor.
-        easy.
-      * eapply bat_no_self_calls'; eauto.
-        now constructor.
+      edestruct deployed_implies_constants_valid as
+        (cstate' & deployed_state' & _ & _ & _ & exchange_rate_nonzero & _); eauto.
+      now constructor.
+      easy.
   Qed.
 
 
@@ -1676,7 +1626,7 @@ Section Theories.
   Proof.
     intros *.
     unfold effective_balance.
-    contract_induction; intros; auto; try destruct IH as [IH_finalized IH_funding].
+    nonrecursive_contract_induction; intros; auto; try destruct IH as [IH_finalized IH_funding].
     - cbn in *.
       destruct_match in init_some; try congruence.
       inversion init_some. cbn.
@@ -1697,15 +1647,13 @@ Section Theories.
           (with_default 0 (FMap.find ctx.(ctx_from) (balances state))) <= total_supply state - initSupply state) /\
         (isFinalized state = false /\
                       ((current_slot chain <= fundingEnd state)%nat \/
-                      tokenCreationMin state <= total_supply state) -> out_acts = []) /\
-        ctx_from ctx <> ctx_contract_address ctx).
+                      tokenCreationMin state <= total_supply state) -> out_acts = [])).
       destruct facts as (ctx_amount_positive &
                         supply_bound &
                         exchange_rate_nonzero &
                         tokens_modulo_exchange_rate &
                         tokens_bound &
-                        funding_no_outgoing_acts &
-                        _).
+                        funding_no_outgoing_acts).
       clear CallFacts AddBlockFacts DeployFacts.
       destruct msg. destruct m.
       + apply eip_only_changes_token_state in receive_some as finalized_unchanged.
@@ -1771,7 +1719,6 @@ Section Theories.
           cbn in *.
           lia.
       + now contract_simpl.
-    - now destruct facts as (_ & _ & _ & _ & _ & no_self_calls).
     - now erewrite sumZ_permutation in IH_finalized, IH_funding by eauto.
     - solve_facts.
       destruct_and_split.
@@ -1805,8 +1752,6 @@ Section Theories.
         edestruct funding_period_no_acts as (cstate' & deployed_state' & no_acts); eauto.
         now constructor.
         now apply no_acts.
-      + eapply bat_no_self_calls'; eauto.
-        now constructor.
   Qed.
 
 
@@ -1878,7 +1823,7 @@ Section Theories.
         replace (env_account_balances (set_contract_state to new_state (transfer_balance caddr to amount bstate)) to)
           with (((env_account_balances bstate to) + amount)%Z).
         * apply receive_some.
-        * apply bat_no_self_calls in deployed; auto.
+        * apply bat_nonrecursive in deployed; auto.
           eapply Forall_forall in deployed; eauto.
           cbn in *.
           destruct_address_eq; easy.
