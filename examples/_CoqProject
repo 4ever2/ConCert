@@ -151,6 +151,7 @@ piggybank/PiggyBankExtractLiquidity.v
 piggybank/PiggyBankExtractRust.v
 piggybank/HacspecPiggyBank.v
 piggybank/HacspecPiggyBankTest.v
+piggybank/PiggyBankEq.v
 
 -Q hacspec ConCert.Examples.Hacspec
 hacspec/HacspecConcordium.v
