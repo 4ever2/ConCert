@@ -1,3 +1,4 @@
+Local Unset Universe Checking.
 From ConCert.Execution Require Import Blockchain.
 From ConCert.Execution Require Import Serializable.
 From ConCert.Execution Require Monad.
@@ -16,6 +17,9 @@ From Coq Require Import List.
 From Coq Require Import String.
 
 Import MCMonadNotation.
+
+Local Set Universe Checking.
+
 Open Scope string.
 
 #[local]
