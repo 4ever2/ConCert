@@ -1,3 +1,4 @@
+Local Unset Universe Checking.
 From MetaCoq.Common Require Import Kernames.
 From MetaCoq.PCUIC Require Import PCUICAst.
 From ConCert.Execution Require Import Blockchain.
@@ -19,6 +20,8 @@ From MetaCoq.Template Require Import All.
 
 Import ListNotations.
 Import MCMonadNotation.
+
+Local Set Universe Checking.
 
 
 Definition to_constant_decl (gd : option global_decl) :=

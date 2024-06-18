@@ -1,6 +1,7 @@
 (** * Extraction of a counter contract with refinement types to Midlang *)
 
 (** The contract uses refinement types to specify some functional correctness properties *)
+Local Unset Universe Checking.
 From ConCert.Execution Require Import Blockchain.
 From ConCert.Execution Require Import Serializable.
 From ElmExtraction Require Import Common.
@@ -16,6 +17,8 @@ From Coq Require Import String.
 From Coq Require Import ZArith.
 
 Import MCMonadNotation.
+
+Local Set Universe Checking.
 Open Scope string.
 
 #[local]
