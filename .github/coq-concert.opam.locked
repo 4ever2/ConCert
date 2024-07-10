@@ -25,7 +25,7 @@ depends: [
   "coq-stdpp" {= "1.10.0"}
 ]
 build: [
-  [make]
+  [make "core"]
   [make "examples"] {with-test}
   [make "html"] {with-doc}
 ]
