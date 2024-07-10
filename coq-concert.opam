@@ -30,7 +30,7 @@ depends: [
 ]
 
 build: [
-  [make]
+  [make "core"]
   [make "examples"] {with-test}
   [make "html"] {with-doc}
 ]
