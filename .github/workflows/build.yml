@@ -29,7 +29,7 @@ concurrency:
 permissions:
   contents: read
 env:
-  OCAML_COMILER_VERSION: "4.14.2"
+  OCAML_COMILER_VERSION: "4.14.x"
   JOBS: 4
 jobs:
   build:
@@ -51,14 +51,16 @@ jobs:
             opam-${{env.OCAML_COMILER_VERSION}}-
 
       - name: Set up OCaml
-        uses: avsm/setup-ocaml@v1
+        uses: avsm/setup-ocaml@v3
         with:
-          ocaml-version: ${{env.OCAML_COMILER_VERSION}}
+          ocaml-compiler: ${{env.OCAML_COMILER_VERSION}}
+          opam-repositories: |
+            coq-released: https://coq.inria.fr/opam/released
+            default: https://opam.ocaml.org
 
       - name: Build dependencies
         #if: ${{ !steps.opam-cache.outputs.cache-hit }}
         run: |
-          opam repo add coq-released https://coq.inria.fr/opam/released
           opam install --deps-only -j${{ env.JOBS }} .github/coq-concert.opam.locked
           opam install -y -j${{ env.JOBS }} coq-dpdgraph
           opam clean -a -c -s --logs
