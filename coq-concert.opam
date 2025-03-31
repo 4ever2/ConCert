@@ -3,7 +3,7 @@ name: "coq-concert"
 version: "dev"
 synopsis: "A framework for smart contract verification in Coq"
 description: """
-A framework for smart contract verification in Coq
+A framework for smart contract verification in  Coq
 """
 maintainer: "Danil Annenkov <danil.v.annenkov@gmail.com>"
 authors: "The COBRA team"
